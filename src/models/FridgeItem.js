@@ -1,0 +1,45 @@
+const mongoose = require("mongoose");
+
+const fridgeItemSchema = new mongoose.Schema({
+  user_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
+  ingredient_name: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+  category: {
+    type: String,
+    required: true,
+    enum: ["protein", "karbo", "sayur", "bumbu"],
+  },
+  quantity: {
+    type: Number,
+    default: 0,
+  },
+  unit: {
+    type: String,
+    default: "gram",
+  },
+  created_at: {
+    type: Date,
+    default: Date.now,
+  },
+  updated_at: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+fridgeItemSchema.index({ user_id: 1 });
+fridgeItemSchema.index({ user_id: 1, category: 1 });
+
+fridgeItemSchema.pre("save", function (next) {
+  this.updated_at = new Date();
+  next();
+});
+
+module.exports = mongoose.model("FridgeItem", fridgeItemSchema);
