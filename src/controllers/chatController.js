@@ -1,6 +1,6 @@
 const ChatHistory = require("../models/ChatHistory");
 const FridgeItem = require("../models/FridgeItem");
-const { getGeminiModel } = require("../config/gemini");
+const { getGeminiModel, retryWithAllKeys } = require("../config/gemini");
 
 const buildUserContext = (user, fridgeItems) => {
   const parts = [];
@@ -32,11 +32,16 @@ const sendMessage = async (req, res, next) => {
       history = recent.map((msg) => ({ role: msg.role, parts: [{ text: msg.content }] }));
     }
 
-    const model = getGeminiModel();
-    const chat = model.startChat({ history });
     const userContext = buildUserContext(req.user, fridgeItems);
     const fullMessage = userContext ? `${message}\n${userContext}` : message;
-    const result = await chat.sendMessage(fullMessage);
+    
+    // Retry dengan semua API key yang tersedia jika terjadi error
+    const result = await retryWithAllKeys(async () => {
+      const model = getGeminiModel();
+      const chat = model.startChat({ history });
+      return await chat.sendMessage(fullMessage);
+    });
+    
     const reply = result.response.text();
 
     const newUserMsg = { role: "user", content: message, timestamp: new Date() };
