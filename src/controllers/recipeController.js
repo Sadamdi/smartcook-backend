@@ -9,22 +9,21 @@ const {
   searchCachedRecipes,
   cacheMultipleRecipes,
   cacheRecipe,
-  getFridgeItems: getSQLiteFridge,
-} = require("../sqlite/offline");
-const { pullFromMongo } = require("../utils/syncService");
+  getFridgeItems: getMySQLFridge,
+} = require("../mysql/offline");
 
 const getRecipes = async (req, res, next) => {
   try {
     const { page = 1, limit = 10, category, tags } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    let recipes = getCachedRecipes({
+    let recipes = await getCachedRecipes({
       category,
       tags,
       limit: parseInt(limit),
       offset,
     });
-    let total = countCachedRecipes({ category });
+    let total = await countCachedRecipes({ category });
 
     if (recipes.length === 0 && isMongoConnected()) {
       const query = {};
@@ -39,7 +38,7 @@ const getRecipes = async (req, res, next) => {
       total = await Recipe.countDocuments(query);
 
       if (mongoRecipes.length > 0) {
-        cacheMultipleRecipes(mongoRecipes);
+        await cacheMultipleRecipes(mongoRecipes);
         recipes = mongoRecipes;
       }
     }
@@ -61,12 +60,12 @@ const getRecipes = async (req, res, next) => {
 
 const getRecipeById = async (req, res, next) => {
   try {
-    let recipe = getCachedRecipeById(req.params.id);
+    let recipe = await getCachedRecipeById(req.params.id);
 
     if (!recipe && isMongoConnected()) {
       const mongoRecipe = await Recipe.findById(req.params.id);
       if (mongoRecipe) {
-        cacheRecipe(mongoRecipe);
+        await cacheRecipe(mongoRecipe);
         recipe = mongoRecipe;
       }
     }
@@ -89,7 +88,7 @@ const searchRecipes = async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Query pencarian wajib diisi." });
     }
 
-    let recipes = searchCachedRecipes(q, parseInt(limit));
+    let recipes = await searchCachedRecipes(q, parseInt(limit));
     let total = recipes.length;
 
     if (recipes.length === 0 && isMongoConnected()) {
@@ -101,7 +100,7 @@ const searchRecipes = async (req, res, next) => {
       total = await Recipe.countDocuments({ $text: { $search: q } });
 
       if (recipes.length > 0) {
-        cacheMultipleRecipes(recipes);
+        await cacheMultipleRecipes(recipes);
       }
     }
 
@@ -125,8 +124,8 @@ const getRecommendations = async (req, res, next) => {
     const userId = req.user._id.toString();
     const { limit = 5 } = req.query;
 
-    const sqliteFridge = getSQLiteFridge(userId);
-    let ingredientNames = sqliteFridge.map((item) => item.ingredient_name.toLowerCase());
+    const mysqlFridge = await getMySQLFridge(userId);
+    let ingredientNames = mysqlFridge.map((item) => item.ingredient_name.toLowerCase());
 
     if (ingredientNames.length === 0 && isMongoConnected()) {
       const mongoFridge = await FridgeItem.find({ user_id: req.user._id });
@@ -136,7 +135,7 @@ const getRecommendations = async (req, res, next) => {
     let recipes = [];
 
     if (ingredientNames.length > 0) {
-      const allRecipes = getCachedRecipes({ limit: 200 });
+      const allRecipes = await getCachedRecipes({ limit: 200 });
       recipes = allRecipes.filter((recipe) => {
         if (!recipe.ingredients) return false;
         return recipe.ingredients.some((ing) =>
@@ -168,12 +167,12 @@ const getRecommendations = async (req, res, next) => {
       }
 
       if (recipes.length > 0) {
-        cacheMultipleRecipes(recipes);
+        await cacheMultipleRecipes(recipes);
       }
     }
 
     if (recipes.length === 0) {
-      recipes = getCachedRecipes({ limit: parseInt(limit) });
+      recipes = await getCachedRecipes({ limit: parseInt(limit) });
     }
 
     res.json({ success: true, data: recipes });
@@ -196,8 +195,8 @@ const getByMealType = async (req, res, next) => {
       });
     }
 
-    let recipes = getCachedRecipes({ meal_type: type, limit: parseInt(limit), offset });
-    let total = countCachedRecipes({ meal_type: type });
+    let recipes = await getCachedRecipes({ meal_type: type, limit: parseInt(limit), offset });
+    let total = await countCachedRecipes({ meal_type: type });
 
     if (recipes.length === 0 && isMongoConnected()) {
       const mongoRecipes = await Recipe.find({ meal_type: type })
@@ -208,7 +207,7 @@ const getByMealType = async (req, res, next) => {
       total = await Recipe.countDocuments({ meal_type: type });
 
       if (mongoRecipes.length > 0) {
-        cacheMultipleRecipes(mongoRecipes);
+        await cacheMultipleRecipes(mongoRecipes);
         recipes = mongoRecipes;
       }
     }

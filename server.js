@@ -4,7 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
-const { connectMongoDB, getSQLiteDB, isMongoConnected } = require("./src/config/db");
+const { connectMongoDB, getMySQLPool, isMongoConnected } = require("./src/config/db");
 const { initGemini } = require("./src/config/gemini");
 const { errorHandler } = require("./src/middleware/errorHandler");
 const { validateApiKey } = require("./src/middleware/apiKey");
@@ -71,15 +71,15 @@ const PORT = process.env.PORT || 3000;
 
 const startServer = async () => {
   try {
-    getSQLiteDB();
-    console.log("SQLite initialized successfully (primary storage)");
+    await getMySQLPool();
+    console.log("MySQL initialized successfully (offline backup)");
 
     const mongoConn = await connectMongoDB();
     if (mongoConn) {
-      console.log("MongoDB connected successfully (backup storage)");
+      console.log("MongoDB connected successfully (primary storage)");
       startSyncScheduler(parseInt(process.env.SYNC_INTERVAL) || 30000);
     } else {
-      console.log("Running in SQLite-only mode. MongoDB will sync when available.");
+      console.log("Running in MySQL-only mode. MongoDB will sync when available.");
 
       setInterval(async () => {
         if (!isMongoConnected()) {

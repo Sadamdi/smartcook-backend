@@ -4,6 +4,9 @@ node_modules/
 # Environment variables
 .env
 
+# Firebase Service Account (sensitive)
+serviceAccountKey.json
+
 # Database files (SQLite)
 *.db
 *.sqlite

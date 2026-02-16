@@ -1,37 +1,21 @@
 const { isMongoConnected } = require("../config/db");
 const { syncToMongo, pullFromMongo } = require("../utils/syncService");
-const sqlite = require("../sqlite/offline");
+const { getPendingSyncItems } = require("../mysql/offline");
 
 const pullData = async (req, res, next) => {
   try {
-    const userId = req.user._id.toString();
-
     if (!isMongoConnected()) {
-      const recipes = sqlite.getCachedRecipes({ limit: 100 });
-      const ingredients = sqlite.getCachedIngredients();
-      const fridge = sqlite.getFridgeItems(userId);
-      const favorites = sqlite.getFavorites(userId, 100, 0);
-
-      return res.json({
-        success: true,
-        data: { recipes, ingredients, fridge, favorites },
-        source: "sqlite",
-        synced_at: new Date(),
+      return res.status(503).json({
+        success: false,
+        message: "MongoDB tidak tersedia. Tidak bisa pull data.",
       });
     }
 
-    const pulled = await pullFromMongo(userId);
-
-    const recipes = sqlite.getCachedRecipes({ limit: 100 });
-    const ingredients = sqlite.getCachedIngredients();
-    const fridge = sqlite.getFridgeItems(userId);
-    const favorites = sqlite.getFavorites(userId, 100, 0);
+    await pullFromMongo();
 
     res.json({
       success: true,
-      data: { recipes, ingredients, fridge, favorites },
-      source: pulled ? "mongodb" : "sqlite",
-      synced_at: new Date(),
+      message: "Data berhasil di-pull dari MongoDB.",
     });
   } catch (error) {
     next(error);
@@ -40,19 +24,18 @@ const pullData = async (req, res, next) => {
 
 const pushData = async (req, res, next) => {
   try {
-    if (isMongoConnected()) {
-      await syncToMongo();
+    if (!isMongoConnected()) {
+      return res.status(503).json({
+        success: false,
+        message: "MongoDB tidak tersedia. Data akan disync otomatis saat koneksi kembali.",
+      });
     }
 
-    const pending = sqlite.getPendingSyncItems();
+    await syncToMongo();
 
     res.json({
       success: true,
-      message: isMongoConnected()
-        ? "Data berhasil disync ke MongoDB."
-        : "Data tersimpan di SQLite, akan disync saat MongoDB tersedia.",
-      pending_sync: pending.length,
-      synced_at: new Date(),
+      message: "Data berhasil di-push ke MongoDB.",
     });
   } catch (error) {
     next(error);
@@ -61,14 +44,14 @@ const pushData = async (req, res, next) => {
 
 const getStatus = async (req, res, next) => {
   try {
-    const pending = sqlite.getPendingSyncItems();
+    const pendingItems = await getPendingSyncItems();
 
     res.json({
       success: true,
       data: {
-        mongodb_connected: isMongoConnected(),
-        pending_sync_items: pending.length,
-        timestamp: new Date(),
+        mongo_connected: isMongoConnected(),
+        pending_sync: pendingItems.length,
+        last_check: new Date(),
       },
     });
   } catch (error) {

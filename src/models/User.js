@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     minlength: 6,
+    select: false,
   },
   name: {
     type: String,
@@ -20,7 +21,7 @@ const userSchema = new mongoose.Schema({
   },
   auth_provider: {
     type: String,
-    enum: ["email", "google", "apple"],
+    enum: ["email", "google"],
     default: "email",
   },
   firebase_uid: {
@@ -29,12 +30,12 @@ const userSchema = new mongoose.Schema({
   },
   age_range: {
     type: String,
-    enum: ["12 - 17 thn", "18 - 25 thn", "26 - 40 thn", ""],
+    enum: ["< 12 thn", "12 - 17 thn", "> 17 thn", ""],
     default: "",
   },
   gender: {
     type: String,
-    enum: ["Laki-Laki", "Perempuan", ""],
+    enum: ["Laki-laki", "Perempuan", ""],
     default: "",
   },
   allergies: {

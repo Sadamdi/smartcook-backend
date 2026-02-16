@@ -1,8 +1,7 @@
 const mongoose = require("mongoose");
-const Database = require("better-sqlite3");
-const path = require("path");
+const mysql = require("mysql2/promise");
 
-let sqliteDb;
+let mysqlPool;
 let mongoConnected = false;
 
 const connectMongoDB = async () => {
@@ -24,7 +23,7 @@ const connectMongoDB = async () => {
     return conn;
   } catch (error) {
     mongoConnected = false;
-    console.log("MongoDB connection failed, running in SQLite-only mode");
+    console.log("MongoDB connection failed, running in MySQL-only mode");
     return null;
   }
 };
@@ -33,93 +32,112 @@ const isMongoConnected = () => {
   return mongoConnected && mongoose.connection.readyState === 1;
 };
 
-const getSQLiteDB = () => {
-  if (!sqliteDb) {
-    const dbPath = path.join(__dirname, "..", "sqlite", "smartcook.db");
-    sqliteDb = new Database(dbPath);
-    sqliteDb.pragma("journal_mode = WAL");
-    sqliteDb.pragma("foreign_keys = ON");
-    initSQLiteTables(sqliteDb);
+const getMySQLPool = async () => {
+  if (!mysqlPool) {
+    mysqlPool = mysql.createPool({
+      host: process.env.MYSQL_HOST || "localhost",
+      port: parseInt(process.env.MYSQL_PORT) || 3306,
+      user: process.env.MYSQL_USER || "root",
+      password: process.env.MYSQL_PASSWORD || "",
+      database: process.env.MYSQL_DATABASE || "smartcook",
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0,
+    });
+
+    await initMySQLTables();
   }
-  return sqliteDb;
+  return mysqlPool;
 };
 
-const initSQLiteTables = (db) => {
-  db.exec(`
+const initMySQLTables = async () => {
+  const pool = mysqlPool;
+
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS cached_recipes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      mongo_id TEXT UNIQUE,
-      title TEXT NOT NULL,
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      mongo_id VARCHAR(24) UNIQUE,
+      title VARCHAR(255) NOT NULL,
       description TEXT,
       image_url TEXT,
-      data_json TEXT NOT NULL,
-      updated_at TEXT DEFAULT (datetime('now'))
-    );
+      data_json LONGTEXT NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
 
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS cached_ingredients (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      mongo_id TEXT UNIQUE,
-      name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      sub_category TEXT DEFAULT '',
-      unit TEXT,
-      common_quantity REAL DEFAULT 0,
-      updated_at TEXT DEFAULT (datetime('now'))
-    );
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      mongo_id VARCHAR(24) UNIQUE,
+      name VARCHAR(255) NOT NULL,
+      category VARCHAR(50) NOT NULL,
+      sub_category VARCHAR(100) DEFAULT '',
+      unit VARCHAR(50),
+      common_quantity DOUBLE DEFAULT 0,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
 
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS fridge_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      mongo_id TEXT,
-      user_id TEXT NOT NULL,
-      ingredient_name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      quantity REAL DEFAULT 0,
-      unit TEXT DEFAULT 'gram',
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
-    );
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      mongo_id VARCHAR(24),
+      user_id VARCHAR(24) NOT NULL,
+      ingredient_name VARCHAR(255) NOT NULL,
+      category VARCHAR(50) NOT NULL,
+      quantity DOUBLE DEFAULT 0,
+      unit VARCHAR(50) DEFAULT 'gram',
+      expired_date DATETIME DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_fridge_user (user_id),
+      INDEX idx_fridge_user_cat (user_id, category)
+    )
+  `);
 
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS favorites (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      mongo_id TEXT,
-      user_id TEXT NOT NULL,
-      recipe_mongo_id TEXT NOT NULL,
-      recipe_data_json TEXT,
-      created_at TEXT DEFAULT (datetime('now'))
-    );
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      mongo_id VARCHAR(24),
+      user_id VARCHAR(24) NOT NULL,
+      recipe_mongo_id VARCHAR(24) NOT NULL,
+      recipe_data_json LONGTEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_favorites_user (user_id)
+    )
+  `);
 
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS chat_histories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id TEXT NOT NULL,
-      messages_json TEXT DEFAULT '[]',
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
-    );
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id VARCHAR(24) NOT NULL UNIQUE,
+      messages_json LONGTEXT DEFAULT ('[]'),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_chat_user (user_id)
+    )
+  `);
 
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS sync_queue (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      action TEXT NOT NULL,
-      collection_name TEXT NOT NULL,
-      document_id TEXT,
-      user_id TEXT,
-      data_json TEXT,
-      synced INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_fridge_user ON fridge_items(user_id);
-    CREATE INDEX IF NOT EXISTS idx_fridge_user_cat ON fridge_items(user_id, category);
-    CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
-    CREATE INDEX IF NOT EXISTS idx_sync_synced ON sync_queue(synced);
-    CREATE INDEX IF NOT EXISTS idx_chat_user ON chat_histories(user_id);
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      action VARCHAR(50) NOT NULL,
+      collection_name VARCHAR(100) NOT NULL,
+      document_id VARCHAR(24),
+      user_id VARCHAR(24),
+      data_json LONGTEXT,
+      synced TINYINT DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_sync_synced (synced)
+    )
   `);
 };
 
-const closeSQLiteDB = () => {
-  if (sqliteDb) {
-    sqliteDb.close();
-    sqliteDb = null;
+const closeMySQLPool = async () => {
+  if (mysqlPool) {
+    await mysqlPool.end();
+    mysqlPool = null;
   }
 };
 
-module.exports = { connectMongoDB, isMongoConnected, getSQLiteDB, closeSQLiteDB };
+module.exports = { connectMongoDB, isMongoConnected, getMySQLPool, closeMySQLPool };

@@ -24,6 +24,10 @@ const fridgeItemSchema = new mongoose.Schema({
     type: String,
     default: "gram",
   },
+  expired_date: {
+    type: Date,
+    default: null,
+  },
   created_at: {
     type: Date,
     default: Date.now,

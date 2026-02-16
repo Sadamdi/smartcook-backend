@@ -4,9 +4,11 @@ const COOKING_STYLES = [
   { id: "quick_easy", name: "Quick & Easy", description: "Masakan cepat dan mudah" },
   { id: "healthy_clean", name: "Healthy & Clean", description: "Masakan sehat dan bersih" },
   { id: "budget_friendly", name: "Budget Friendly", description: "Masakan hemat budget" },
-  { id: "traditional", name: "Traditional", description: "Masakan tradisional Indonesia" },
-  { id: "modern", name: "Modern", description: "Masakan modern dan kekinian" },
-  { id: "vegetarian", name: "Vegetarian", description: "Masakan vegetarian" },
+  { id: "indonesian_comfort", name: "Indonesian Comfort", description: "Masakan nyaman khas Indonesia" },
+  { id: "western_vibes", name: "Western Vibes", description: "Masakan ala barat" },
+  { id: "pro_chef", name: "Pro Chef", description: "Masakan level profesional" },
+  { id: "plant_based", name: "Plant Based", description: "Masakan berbasis nabati" },
+  { id: "balanced_nutrition", name: "Balanced Nutrition", description: "Masakan nutrisi seimbang" },
 ];
 
 const MEAL_TYPES = [

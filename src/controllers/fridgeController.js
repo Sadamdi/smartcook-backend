@@ -1,18 +1,18 @@
 const FridgeItem = require("../models/FridgeItem");
 const { isMongoConnected } = require("../config/db");
-const sqlite = require("../sqlite/offline");
+const mysql = require("../mysql/offline");
 
 const getFridgeItems = async (req, res, next) => {
   try {
     const userId = req.user._id.toString();
 
-    let items = sqlite.getFridgeItems(userId);
+    let items = await mysql.getFridgeItems(userId);
 
     if (items.length === 0 && isMongoConnected()) {
       const mongoItems = await FridgeItem.find({ user_id: req.user._id }).sort({ category: 1, ingredient_name: 1 });
       if (mongoItems.length > 0) {
-        sqlite.bulkLoadFridgeFromMongo(mongoItems);
-        items = sqlite.getFridgeItems(userId);
+        await mysql.bulkLoadFridgeFromMongo(mongoItems);
+        items = await mysql.getFridgeItems(userId);
       }
     }
 
@@ -24,7 +24,7 @@ const getFridgeItems = async (req, res, next) => {
 
 const addFridgeItem = async (req, res, next) => {
   try {
-    const { ingredient_name, category, quantity, unit } = req.body;
+    const { ingredient_name, category, quantity, unit, expired_date } = req.body;
     const userId = req.user._id.toString();
 
     if (!ingredient_name || !category) {
@@ -36,19 +36,21 @@ const addFridgeItem = async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Kategori harus protein, karbo, sayur, atau bumbu." });
     }
 
-    const result = sqlite.saveFridgeItem({
+    const result = await mysql.saveFridgeItem({
       user_id: userId,
       ingredient_name,
       category,
       quantity: quantity || 0,
       unit: unit || "gram",
+      expired_date: expired_date || null,
     });
 
-    sqlite.addToSyncQueue("create", "fridge", null, userId, {
+    await mysql.addToSyncQueue("create", "fridge", null, userId, {
       ingredient_name,
       category,
       quantity: result.data.quantity,
       unit: result.data.unit,
+      expired_date: result.data.expired_date,
     });
 
     const statusCode = result.merged ? 200 : 201;
@@ -66,16 +68,16 @@ const addFridgeItem = async (req, res, next) => {
 
 const updateFridgeItem = async (req, res, next) => {
   try {
-    const { quantity, unit } = req.body;
+    const { quantity, unit, expired_date } = req.body;
     const userId = req.user._id.toString();
 
-    const item = sqlite.updateFridgeItem(req.params.id, userId, { quantity, unit });
+    const item = await mysql.updateFridgeItem(req.params.id, userId, { quantity, unit, expired_date });
 
     if (!item) {
       return res.status(404).json({ success: false, message: "Bahan tidak ditemukan." });
     }
 
-    sqlite.addToSyncQueue("update", "fridge", item.mongo_id, userId, { quantity, unit });
+    await mysql.addToSyncQueue("update", "fridge", item.mongo_id, userId, { quantity, unit, expired_date });
 
     res.json({
       success: true,
@@ -91,14 +93,14 @@ const deleteFridgeItem = async (req, res, next) => {
   try {
     const userId = req.user._id.toString();
 
-    const item = sqlite.deleteFridgeItem(req.params.id, userId);
+    const item = await mysql.deleteFridgeItem(req.params.id, userId);
 
     if (!item) {
       return res.status(404).json({ success: false, message: "Bahan tidak ditemukan." });
     }
 
     if (item.mongo_id) {
-      sqlite.addToSyncQueue("delete", "fridge", item.mongo_id, userId, null);
+      await mysql.addToSyncQueue("delete", "fridge", item.mongo_id, userId, null);
     }
 
     res.json({
@@ -120,13 +122,13 @@ const getByCategory = async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Kategori harus protein, karbo, sayur, atau bumbu." });
     }
 
-    let items = sqlite.getFridgeItems(userId, category);
+    let items = await mysql.getFridgeItems(userId, category);
 
     if (items.length === 0 && isMongoConnected()) {
       const mongoItems = await FridgeItem.find({ user_id: req.user._id, category }).sort({ ingredient_name: 1 });
       if (mongoItems.length > 0) {
-        sqlite.bulkLoadFridgeFromMongo(mongoItems);
-        items = sqlite.getFridgeItems(userId, category);
+        await mysql.bulkLoadFridgeFromMongo(mongoItems);
+        items = await mysql.getFridgeItems(userId, category);
       }
     }
 

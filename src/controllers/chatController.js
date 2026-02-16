@@ -3,7 +3,7 @@ const FridgeItem = require("../models/FridgeItem");
 const User = require("../models/User");
 const { isMongoConnected } = require("../config/db");
 const { getGeminiModel } = require("../config/gemini");
-const sqlite = require("../sqlite/offline");
+const mysql = require("../mysql/offline");
 
 const buildUserContext = (user, fridgeItems) => {
   const parts = [];
@@ -44,14 +44,14 @@ const sendMessage = async (req, res, next) => {
 
     const userId = req.user._id.toString();
 
-    const fridgeItems = sqlite.getFridgeItems(userId);
+    const fridgeItems = await mysql.getFridgeItems(userId);
     const user = req.user;
 
-    let sqliteChat = sqlite.getChatHistory(userId);
+    let mysqlChat = await mysql.getChatHistory(userId);
     let history = [];
 
-    if (sqliteChat && sqliteChat.messages.length > 0) {
-      const recentMessages = sqliteChat.messages.slice(-20);
+    if (mysqlChat && mysqlChat.messages.length > 0) {
+      const recentMessages = mysqlChat.messages.slice(-20);
       history = recentMessages.map((msg) => ({
         role: msg.role,
         parts: [{ text: msg.content }],
@@ -70,15 +70,15 @@ const sendMessage = async (req, res, next) => {
     const newModelMsg = { role: "model", content: reply, timestamp: new Date().toISOString() };
 
     let allMessages = [];
-    if (sqliteChat) {
-      allMessages = [...sqliteChat.messages, newUserMsg, newModelMsg];
+    if (mysqlChat) {
+      allMessages = [...mysqlChat.messages, newUserMsg, newModelMsg];
     } else {
       allMessages = [newUserMsg, newModelMsg];
     }
 
-    sqlite.saveChatHistory(userId, allMessages);
+    await mysql.saveChatHistory(userId, allMessages);
 
-    sqlite.addToSyncQueue("update", "chat", null, userId, { messages: allMessages });
+    await mysql.addToSyncQueue("update", "chat", null, userId, { messages: allMessages });
 
     res.json({
       success: true,
@@ -96,12 +96,12 @@ const getHistory = async (req, res, next) => {
   try {
     const userId = req.user._id.toString();
 
-    let chatData = sqlite.getChatHistory(userId);
+    let chatData = await mysql.getChatHistory(userId);
 
     if (!chatData && isMongoConnected()) {
       const mongoChat = await ChatHistory.findOne({ user_id: req.user._id });
       if (mongoChat) {
-        sqlite.saveChatHistory(userId, mongoChat.messages);
+        await mysql.saveChatHistory(userId, mongoChat.messages);
         chatData = { messages: mongoChat.messages, created_at: mongoChat.created_at, updated_at: mongoChat.updated_at };
       }
     }
@@ -127,9 +127,9 @@ const deleteHistory = async (req, res, next) => {
   try {
     const userId = req.user._id.toString();
 
-    sqlite.deleteChatHistory(userId);
+    await mysql.deleteChatHistory(userId);
 
-    sqlite.addToSyncQueue("delete", "chat", null, userId, null);
+    await mysql.addToSyncQueue("delete", "chat", null, userId, null);
 
     res.json({
       success: true,

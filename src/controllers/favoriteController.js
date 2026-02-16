@@ -1,7 +1,7 @@
 const Favorite = require("../models/Favorite");
 const Recipe = require("../models/Recipe");
 const { isMongoConnected } = require("../config/db");
-const sqlite = require("../sqlite/offline");
+const mysql = require("../mysql/offline");
 
 const getFavorites = async (req, res, next) => {
   try {
@@ -9,8 +9,8 @@ const getFavorites = async (req, res, next) => {
     const { page = 1, limit = 10 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    let favorites = sqlite.getFavorites(userId, parseInt(limit), offset);
-    let total = sqlite.countFavorites(userId);
+    let favorites = await mysql.getFavorites(userId, parseInt(limit), offset);
+    let total = await mysql.countFavorites(userId);
 
     if (favorites.length === 0 && isMongoConnected()) {
       const mongoFavorites = await Favorite.find({ user_id: req.user._id })
@@ -18,9 +18,9 @@ const getFavorites = async (req, res, next) => {
         .sort({ created_at: -1 });
 
       if (mongoFavorites.length > 0) {
-        sqlite.bulkLoadFavoritesFromMongo(mongoFavorites);
-        favorites = sqlite.getFavorites(userId, parseInt(limit), offset);
-        total = sqlite.countFavorites(userId);
+        await mysql.bulkLoadFavoritesFromMongo(mongoFavorites);
+        favorites = await mysql.getFavorites(userId, parseInt(limit), offset);
+        total = await mysql.countFavorites(userId);
       }
     }
 
@@ -49,14 +49,14 @@ const addFavorite = async (req, res, next) => {
     const { recipeId } = req.params;
     const userId = req.user._id.toString();
 
-    let recipeData = sqlite.getCachedRecipeById(recipeId);
+    let recipeData = await mysql.getCachedRecipeById(recipeId);
 
     if (!recipeData && isMongoConnected()) {
       const recipe = await Recipe.findById(recipeId);
       if (!recipe) {
         return res.status(404).json({ success: false, message: "Resep tidak ditemukan." });
       }
-      sqlite.cacheRecipe(recipe);
+      await mysql.cacheRecipe(recipe);
       recipeData = recipe;
     }
 
@@ -64,13 +64,13 @@ const addFavorite = async (req, res, next) => {
       return res.status(404).json({ success: false, message: "Resep tidak ditemukan." });
     }
 
-    const result = sqlite.saveFavorite(userId, recipeId, recipeData);
+    const result = await mysql.saveFavorite(userId, recipeId, recipeData);
 
     if (result.existed) {
       return res.status(400).json({ success: false, message: "Resep sudah ada di favorit." });
     }
 
-    sqlite.addToSyncQueue("create", "favorites", null, userId, { recipe_id: recipeId });
+    await mysql.addToSyncQueue("create", "favorites", null, userId, { recipe_id: recipeId });
 
     res.status(201).json({
       success: true,
@@ -87,13 +87,13 @@ const removeFavorite = async (req, res, next) => {
     const { recipeId } = req.params;
     const userId = req.user._id.toString();
 
-    const deleted = sqlite.deleteFavorite(userId, recipeId);
+    const deleted = await mysql.deleteFavorite(userId, recipeId);
 
     if (!deleted) {
       return res.status(404).json({ success: false, message: "Resep tidak ada di favorit." });
     }
 
-    sqlite.addToSyncQueue("delete", "favorites", null, userId, { recipe_id: recipeId });
+    await mysql.addToSyncQueue("delete", "favorites", null, userId, { recipe_id: recipeId });
 
     res.json({
       success: true,

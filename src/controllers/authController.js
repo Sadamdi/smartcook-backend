@@ -62,7 +62,7 @@ const login = async (req, res, next) => {
     if (!user.password) {
       return res.status(401).json({
         success: false,
-        message: "Akun ini terdaftar melalui Google/Apple. Silakan login dengan metode tersebut.",
+        message: "Akun ini terdaftar melalui Google. Silakan login dengan metode tersebut.",
       });
     }
 
@@ -121,49 +121,6 @@ const googleAuth = async (req, res, next) => {
   } catch (error) {
     if (error.code === "auth/id-token-expired") {
       return res.status(401).json({ success: false, message: "Google token sudah expired." });
-    }
-    next(error);
-  }
-};
-
-const appleAuth = async (req, res, next) => {
-  try {
-    const { id_token } = req.body;
-
-    if (!id_token) {
-      return res.status(400).json({ success: false, message: "ID token wajib dikirim." });
-    }
-
-    initFirebase();
-    const decodedToken = await admin.auth().verifyIdToken(id_token);
-    const { email, name, uid } = decodedToken;
-
-    let user = await User.findOne({ email: email.toLowerCase() });
-
-    if (!user) {
-      user = await User.create({
-        email: email.toLowerCase(),
-        name: name || "",
-        auth_provider: "apple",
-        firebase_uid: uid,
-      });
-    } else {
-      if (!user.firebase_uid) {
-        user.firebase_uid = uid;
-        await user.save();
-      }
-    }
-
-    const token = generateToken(user._id);
-
-    res.json({
-      success: true,
-      message: "Login Apple berhasil.",
-      data: { user, token },
-    });
-  } catch (error) {
-    if (error.code === "auth/id-token-expired") {
-      return res.status(401).json({ success: false, message: "Apple token sudah expired." });
     }
     next(error);
   }
@@ -274,7 +231,6 @@ module.exports = {
   register,
   login,
   googleAuth,
-  appleAuth,
   forgotPassword,
   verifyOTP,
   resetPassword,

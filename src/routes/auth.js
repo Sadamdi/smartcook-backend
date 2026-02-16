@@ -4,7 +4,6 @@ const {
   register,
   login,
   googleAuth,
-  appleAuth,
   forgotPassword,
   verifyOTP,
   resetPassword,
@@ -13,7 +12,6 @@ const {
 router.post("/register", register);
 router.post("/login", login);
 router.post("/google", googleAuth);
-router.post("/apple", appleAuth);
 router.post("/forgot-password", forgotPassword);
 router.post("/verify-otp", verifyOTP);
 router.post("/reset-password", resetPassword);

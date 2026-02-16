@@ -1,0 +1,78 @@
+{
+    "project_info": {
+        "project_number": "700811312802",
+        "project_id": "auth-48b22",
+        "storage_bucket": "auth-48b22.firebasestorage.app"
+    },
+    "client": [
+        {
+            "client_info": {
+                "mobilesdk_app_id": "1:700811312802:android:b727d44d551bdfe5eae1fb",
+                "android_client_info": {
+                    "package_name": "com.example.smartcook"
+                }
+            },
+            "oauth_client": [
+                {
+                    "client_id": "700811312802-57f8go9u3v523arkfaoe0uvdlod3a3pp.apps.googleusercontent.com",
+                    "client_type": 1,
+                    "android_info": {
+                        "package_name": "com.example.smartcook",
+                        "certificate_hash": "1cc304dbf42c2c62045f490a8b42e25d1a218844"
+                    }
+                },
+                {
+                    "client_id": "700811312802-ace3doasv2ojk7v8pfd6opcsk51dfhdu.apps.googleusercontent.com",
+                    "client_type": 1,
+                    "android_info": {
+                        "package_name": "com.example.smartcook",
+                        "certificate_hash": "a94105f68eb13b0e15396a03c28f10e17b9b4003"
+                    }
+                },
+                {
+                    "client_id": "700811312802-gs8akgo4sbpc6e90jr6gcnkje2buropk.apps.googleusercontent.com",
+                    "client_type": 1,
+                    "android_info": {
+                        "package_name": "com.example.smartcook",
+                        "certificate_hash": "5bc5478f4e5a84c492b2aedae5e1dd07ff2d149e"
+                    }
+                },
+                {
+                    "client_id": "700811312802-i0jhuv3d0m257ccguv2a0hqcv1k97dof.apps.googleusercontent.com",
+                    "client_type": 1,
+                    "android_info": {
+                        "package_name": "com.example.smartcook",
+                        "certificate_hash": "2d217227828de08dd863906dcb67e324dad8098d"
+                    }
+                },
+                {
+                    "client_id": "700811312802-kcjdtfuac640bkjgch3rhv6iej094ddr.apps.googleusercontent.com",
+                    "client_type": 3
+                }
+            ],
+            "api_key": [
+                {
+                    "current_key": "AIzaSyCIY4-EDlOAHp84Oy_bFXvFrdc2jQusI3o"
+                }
+            ],
+            "services": {
+                "appinvite_service": {
+                    "other_platform_oauth_client": [
+                        {
+                            "client_id": "700811312802-kcjdtfuac640bkjgch3rhv6iej094ddr.apps.googleusercontent.com",
+                            "client_type": 3
+                        },
+                        {
+                            "client_id": "700811312802-0png63i3bpj92qqaqjp0m50lpjt800cb.apps.googleusercontent.com",
+                            "client_type": 2,
+                            "ios_info": {
+                                "bundle_id": "com.example.smartcook"
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    ],
+    "configuration_version": "1"
+}
