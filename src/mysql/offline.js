@@ -2,6 +2,7 @@ const { getMySQLPool } = require("../config/db");
 
 const getCachedRecipes = async (options = {}) => {
   const pool = await getMySQLPool();
+  if (!pool) return [];
   const { category, tags, meal_type, limit = 10, offset = 0 } = options;
 
   let query = "SELECT * FROM cached_recipes WHERE 1=1";
@@ -38,6 +39,7 @@ const getCachedRecipes = async (options = {}) => {
 
 const getCachedRecipeById = async (id) => {
   const pool = await getMySQLPool();
+  if (!pool) return null;
   const [rows] = await pool.execute(
     "SELECT * FROM cached_recipes WHERE mongo_id = ?",
     [id]
@@ -50,6 +52,7 @@ const getCachedRecipeById = async (id) => {
 
 const countCachedRecipes = async (options = {}) => {
   const pool = await getMySQLPool();
+  if (!pool) return 0;
   const { category, meal_type } = options;
 
   let query = "SELECT COUNT(*) as total FROM cached_recipes WHERE 1=1";
@@ -71,6 +74,7 @@ const countCachedRecipes = async (options = {}) => {
 
 const searchCachedRecipes = async (query, limit = 10) => {
   const pool = await getMySQLPool();
+  if (!pool) return [];
   const searchTerm = `%${query}%`;
   const [rows] = await pool.execute(
     "SELECT * FROM cached_recipes WHERE title LIKE ? OR description LIKE ? LIMIT ?",
@@ -85,6 +89,7 @@ const searchCachedRecipes = async (query, limit = 10) => {
 
 const cacheRecipe = async (recipe) => {
   const pool = await getMySQLPool();
+  if (!pool) return;
   const mongoId = recipe._id ? recipe._id.toString() : null;
   const dataJson = JSON.stringify(recipe.toObject ? recipe.toObject() : recipe);
 
@@ -105,6 +110,7 @@ const cacheMultipleRecipes = async (recipes) => {
 
 const getFridgeItems = async (userId, category) => {
   const pool = await getMySQLPool();
+  if (!pool) return [];
   let query = "SELECT * FROM fridge_items WHERE user_id = ?";
   const params = [userId];
 
@@ -121,7 +127,7 @@ const getFridgeItems = async (userId, category) => {
 
 const saveFridgeItem = async (data) => {
   const pool = await getMySQLPool();
-
+  if (!pool) throw new Error("MySQL unavailable");
   const [existing] = await pool.execute(
     "SELECT * FROM fridge_items WHERE user_id = ? AND ingredient_name = ? AND category = ?",
     [data.user_id, data.ingredient_name, data.category]
@@ -149,7 +155,7 @@ const saveFridgeItem = async (data) => {
 
 const updateFridgeItem = async (id, userId, updates) => {
   const pool = await getMySQLPool();
-
+  if (!pool) return null;
   const [existing] = await pool.execute(
     "SELECT * FROM fridge_items WHERE id = ? AND user_id = ?",
     [id, userId]
@@ -187,7 +193,7 @@ const updateFridgeItem = async (id, userId, updates) => {
 
 const deleteFridgeItem = async (id, userId) => {
   const pool = await getMySQLPool();
-
+  if (!pool) return null;
   const [existing] = await pool.execute(
     "SELECT * FROM fridge_items WHERE id = ? AND user_id = ?",
     [id, userId]
@@ -201,6 +207,7 @@ const deleteFridgeItem = async (id, userId) => {
 
 const bulkLoadFridgeFromMongo = async (mongoItems) => {
   const pool = await getMySQLPool();
+  if (!pool) return;
   for (const item of mongoItems) {
     const obj = item.toObject ? item.toObject() : item;
     await pool.execute(
@@ -222,6 +229,7 @@ const bulkLoadFridgeFromMongo = async (mongoItems) => {
 
 const getFavorites = async (userId, limit = 10, offset = 0) => {
   const pool = await getMySQLPool();
+  if (!pool) return [];
   const [rows] = await pool.execute(
     "SELECT * FROM favorites WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
     [userId, limit, offset]
@@ -237,6 +245,7 @@ const getFavorites = async (userId, limit = 10, offset = 0) => {
 
 const countFavorites = async (userId) => {
   const pool = await getMySQLPool();
+  if (!pool) return 0;
   const [rows] = await pool.execute(
     "SELECT COUNT(*) as total FROM favorites WHERE user_id = ?",
     [userId]
@@ -246,7 +255,7 @@ const countFavorites = async (userId) => {
 
 const saveFavorite = async (userId, recipeId, recipeData) => {
   const pool = await getMySQLPool();
-
+  if (!pool) throw new Error("MySQL unavailable");
   const [existing] = await pool.execute(
     "SELECT * FROM favorites WHERE user_id = ? AND recipe_mongo_id = ?",
     [userId, recipeId]
@@ -269,7 +278,7 @@ const saveFavorite = async (userId, recipeId, recipeData) => {
 
 const deleteFavorite = async (userId, recipeId) => {
   const pool = await getMySQLPool();
-
+  if (!pool) return false;
   const [existing] = await pool.execute(
     "SELECT * FROM favorites WHERE user_id = ? AND recipe_mongo_id = ?",
     [userId, recipeId]
@@ -287,6 +296,7 @@ const deleteFavorite = async (userId, recipeId) => {
 
 const bulkLoadFavoritesFromMongo = async (mongoFavorites) => {
   const pool = await getMySQLPool();
+  if (!pool) return;
   for (const fav of mongoFavorites) {
     const obj = fav.toObject ? fav.toObject() : fav;
     const recipeData = obj.recipe_id ? JSON.stringify(obj.recipe_id.toObject ? obj.recipe_id.toObject() : obj.recipe_id) : null;
@@ -303,6 +313,7 @@ const bulkLoadFavoritesFromMongo = async (mongoFavorites) => {
 
 const getChatHistory = async (userId) => {
   const pool = await getMySQLPool();
+  if (!pool) return null;
   const [rows] = await pool.execute(
     "SELECT * FROM chat_histories WHERE user_id = ?",
     [userId]
@@ -317,6 +328,7 @@ const getChatHistory = async (userId) => {
 
 const saveChatHistory = async (userId, messages) => {
   const pool = await getMySQLPool();
+  if (!pool) throw new Error("MySQL unavailable");
   const messagesJson = JSON.stringify(messages);
 
   await pool.execute(
@@ -329,11 +341,13 @@ const saveChatHistory = async (userId, messages) => {
 
 const deleteChatHistory = async (userId) => {
   const pool = await getMySQLPool();
+  if (!pool) return;
   await pool.execute("DELETE FROM chat_histories WHERE user_id = ?", [userId]);
 };
 
 const addToSyncQueue = async (action, collectionName, docId, userId, data) => {
   const pool = await getMySQLPool();
+  if (!pool) return;
   const dataJson = data ? JSON.stringify(data) : null;
 
   await pool.execute(
@@ -345,6 +359,7 @@ const addToSyncQueue = async (action, collectionName, docId, userId, data) => {
 
 const getPendingSyncItems = async () => {
   const pool = await getMySQLPool();
+  if (!pool) return [];
   const [rows] = await pool.execute(
     "SELECT * FROM sync_queue WHERE synced = 0 ORDER BY created_at ASC"
   );
@@ -354,6 +369,7 @@ const getPendingSyncItems = async () => {
 const markSynced = async (ids) => {
   if (!ids || ids.length === 0) return;
   const pool = await getMySQLPool();
+  if (!pool) return;
   const placeholders = ids.map(() => "?").join(",");
   await pool.execute(
     `UPDATE sync_queue SET synced = 1 WHERE id IN (${placeholders})`,

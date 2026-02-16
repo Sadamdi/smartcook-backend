@@ -4,7 +4,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
-const { connectMongoDB, getMySQLPool, isMongoConnected } = require("./src/config/db");
+const { connectMongoDB, getMySQLPool, isMySQLAvailable, isMongoConnected } = require("./src/config/db");
 const { initGemini } = require("./src/config/gemini");
 const { errorHandler } = require("./src/middleware/errorHandler");
 const { validateApiKey } = require("./src/middleware/apiKey");
@@ -71,13 +71,19 @@ const PORT = process.env.PORT || 3000;
 
 const startServer = async () => {
   try {
-    await getMySQLPool();
-    console.log("MySQL initialized successfully (offline backup)");
+    const mysqlPool = await getMySQLPool();
+    if (mysqlPool) {
+      console.log("MySQL initialized successfully (offline backup)");
+    } else {
+      console.log("MySQL unavailable - running with MongoDB only (set MYSQL_* in .env to enable offline backup)");
+    }
 
     const mongoConn = await connectMongoDB();
     if (mongoConn) {
       console.log("MongoDB connected successfully (primary storage)");
-      startSyncScheduler(parseInt(process.env.SYNC_INTERVAL) || 30000);
+      if (isMySQLAvailable()) {
+        startSyncScheduler(parseInt(process.env.SYNC_INTERVAL) || 30000);
+      }
     } else {
       console.log("Running in MySQL-only mode. MongoDB will sync when available.");
 

@@ -1,7 +1,8 @@
 const mongoose = require("mongoose");
 const mysql = require("mysql2/promise");
 
-let mysqlPool;
+let mysqlPool = null;
+let mysqlFailed = false;
 let mongoConnected = false;
 
 const connectMongoDB = async () => {
@@ -33,7 +34,9 @@ const isMongoConnected = () => {
 };
 
 const getMySQLPool = async () => {
-  if (!mysqlPool) {
+  if (mysqlFailed) return null;
+  if (mysqlPool) return mysqlPool;
+  try {
     mysqlPool = mysql.createPool({
       host: process.env.MYSQL_HOST || "localhost",
       port: parseInt(process.env.MYSQL_PORT) || 3306,
@@ -44,14 +47,21 @@ const getMySQLPool = async () => {
       connectionLimit: 10,
       queueLimit: 0,
     });
-
     await initMySQLTables();
+    return mysqlPool;
+  } catch (err) {
+    mysqlPool = null;
+    mysqlFailed = true;
+    console.log("MySQL unavailable:", err.message);
+    return null;
   }
-  return mysqlPool;
 };
+
+const isMySQLAvailable = () => !mysqlFailed && mysqlPool !== null;
 
 const initMySQLTables = async () => {
   const pool = mysqlPool;
+  if (!pool) return;
 
   await pool.execute(`
     CREATE TABLE IF NOT EXISTS cached_recipes (
@@ -140,4 +150,4 @@ const closeMySQLPool = async () => {
   }
 };
 
-module.exports = { connectMongoDB, isMongoConnected, getMySQLPool, closeMySQLPool };
+module.exports = { connectMongoDB, isMongoConnected, getMySQLPool, isMySQLAvailable, closeMySQLPool };
