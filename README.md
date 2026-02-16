@@ -2,7 +2,7 @@
 
 Backend server untuk aplikasi SmartCook - asisten memasak pintar berbasis AI.
 
-Dibangun dengan Node.js, Express, MongoDB (primary), MySQL (offline backup), dan Gemini AI.
+Dibangun dengan Node.js, Express, MongoDB, dan Gemini AI.
 
 ---
 
@@ -15,19 +15,9 @@ Flutter App
     v
 Express Server (server.js)
     |
-    |--- MongoDB (Primary Storage - Cloud)
-    |       |
-    |       |<-- Sync --> MySQL (Offline Backup - Local)
-    |
+    |--- MongoDB (Database)
     |--- Gemini AI (Chat Bot)
 ```
-
-### Flow Data
-
-1. Semua operasi write masuk ke MySQL terlebih dahulu
-2. Perubahan di-queue di tabel `sync_queue`
-3. Background sync service push data ke MongoDB secara periodik
-4. Operasi read mengambil dari MySQL cache, fallback ke MongoDB jika kosong
 
 ---
 
@@ -35,8 +25,7 @@ Express Server (server.js)
 
 - **Runtime**: Node.js
 - **Framework**: Express 5
-- **Database Primary**: MongoDB (Mongoose ODM)
-- **Database Backup**: MySQL (mysql2)
+- **Database**: MongoDB (Mongoose ODM)
 - **AI**: Google Gemini AI
 - **Auth**: JWT + Firebase Admin SDK
 - **Email**: Nodemailer (SMTP)
@@ -55,7 +44,7 @@ smartcook-backend/
 │
 └── src/
     ├── config/
-    │   ├── db.js            (MongoDB + MySQL setup)
+    │   ├── db.js            (MongoDB)
     │   ├── firebase.js      (Firebase Admin SDK)
     │   └── gemini.js        (Gemini AI client)
     │
@@ -79,8 +68,7 @@ smartcook-backend/
     │   ├── fridgeController.js
     │   ├── favoriteController.js
     │   ├── chatController.js
-    │   ├── categoryController.js
-    │   └── syncController.js
+    │   └── categoryController.js
     │
     ├── routes/
     │   ├── auth.js
@@ -89,16 +77,11 @@ smartcook-backend/
     │   ├── fridge.js
     │   ├── favorite.js
     │   ├── chat.js
-    │   ├── category.js
-    │   └── sync.js
-    │
-    ├── mysql/
-    │   └── offline.js        (MySQL CRUD operations)
+    │   └── category.js
     │
     ├── utils/
     │   ├── otp.js
-    │   ├── email.js
-    │   └── syncService.js
+    │   └── email.js
     │
     └── seed.js
 ```
@@ -121,21 +104,11 @@ Copy `.env.example` ke `.env` dan isi semua value:
 cp .env.example .env
 ```
 
-### 3. Setup MySQL
-
-Buat database MySQL:
-
-```sql
-CREATE DATABASE smartcook;
-```
-
-Tabel akan dibuat otomatis saat server pertama kali jalan.
-
-### 4. Setup MongoDB
+### 3. Setup MongoDB
 
 Gunakan MongoDB Atlas atau MongoDB lokal. Pastikan connection string di `.env` sudah benar.
 
-### 5. Jalankan Server
+### 4. Jalankan Server
 
 Development:
 ```bash
@@ -147,7 +120,7 @@ Production:
 npm start
 ```
 
-### 6. Seed Data (Opsional)
+### 5. Seed Data (Opsional)
 
 ```bash
 npm run seed
@@ -162,15 +135,9 @@ npm run seed
 | PORT | Port server | 3000 |
 | NODE_ENV | Environment | development |
 | MONGODB_URI | MongoDB connection string | mongodb+srv://... |
-| MYSQL_HOST | MySQL host | localhost |
-| MYSQL_PORT | MySQL port | 3306 |
-| MYSQL_USER | MySQL username | root |
-| MYSQL_PASSWORD | MySQL password | |
-| MYSQL_DATABASE | MySQL database name | smartcook |
 | JWT_SECRET | Secret key untuk JWT | random_string |
 | JWT_EXPIRES_IN | JWT expiry | 7d |
 | API_KEY | API key untuk proteksi endpoint | random_string |
-| SYNC_INTERVAL | Interval sync MySQL-MongoDB (ms) | 30000 |
 | FIREBASE_PROJECT_ID | Firebase project ID | auth-48b22 |
 | FIREBASE_CLIENT_EMAIL | Firebase service account email | |
 | FIREBASE_PRIVATE_KEY | Firebase private key | |
@@ -258,14 +225,6 @@ Endpoint yang memerlukan autentikasi ditandai dengan (Auth) dan memerlukan heade
 | GET | /api/categories/meal-types | List tipe meal |
 | GET | /api/categories/ingredients | List ingredients (filter: ?category=) |
 
-### Sync (Auth)
-
-| Method | Endpoint | Deskripsi |
-|---|---|---|
-| POST | /api/sync/pull | Pull data dari MongoDB ke MySQL |
-| POST | /api/sync/push | Push data dari MySQL ke MongoDB |
-| GET | /api/sync/status | Cek status sync |
-
 ---
 
 ## Database Schema
@@ -322,15 +281,6 @@ Endpoint yang memerlukan autentikasi ditandai dengan (Auth) dan memerlukan heade
 | sub_category | String | Sub kategori |
 | unit | String | Satuan default |
 | common_quantity | Number | Kuantitas umum |
-
-### MySQL Tables (Offline Backup)
-
-- **cached_recipes** - Cache resep dari MongoDB
-- **cached_ingredients** - Cache ingredients master data
-- **fridge_items** - Inventory kulkas user
-- **favorites** - Resep favorit user
-- **chat_histories** - Riwayat percakapan AI
-- **sync_queue** - Antrian sync ke MongoDB
 
 ---
 

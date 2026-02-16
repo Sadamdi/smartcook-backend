@@ -4,11 +4,10 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
-const { connectMongoDB, getMySQLPool, isMySQLAvailable, isMongoConnected } = require("./src/config/db");
+const { connectMongoDB, isMongoConnected } = require("./src/config/db");
 const { initGemini } = require("./src/config/gemini");
 const { errorHandler } = require("./src/middleware/errorHandler");
 const { validateApiKey } = require("./src/middleware/apiKey");
-const { startSyncScheduler, syncToMongo } = require("./src/utils/syncService");
 
 const authRoutes = require("./src/routes/auth");
 const userRoutes = require("./src/routes/user");
@@ -17,7 +16,6 @@ const fridgeRoutes = require("./src/routes/fridge");
 const favoriteRoutes = require("./src/routes/favorite");
 const chatRoutes = require("./src/routes/chat");
 const categoryRoutes = require("./src/routes/category");
-const syncRoutes = require("./src/routes/sync");
 
 const app = express();
 
@@ -49,7 +47,6 @@ app.use("/api/fridge", fridgeRoutes);
 app.use("/api/favorites", favoriteRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/categories", categoryRoutes);
-app.use("/api/sync", syncRoutes);
 
 app.get("/api/health", (req, res) => {
   res.json({
@@ -71,34 +68,10 @@ const PORT = process.env.PORT || 3000;
 
 const startServer = async () => {
   try {
-    const mysqlPool = await getMySQLPool();
-    if (mysqlPool) {
-      console.log("MySQL initialized successfully (offline backup)");
-    } else {
-      console.log("MySQL unavailable - running with MongoDB only (set MYSQL_* in .env to enable offline backup)");
-    }
-
     const mongoConn = await connectMongoDB();
-    if (mongoConn) {
-      console.log("MongoDB connected successfully (primary storage)");
-      if (isMySQLAvailable()) {
-        startSyncScheduler(parseInt(process.env.SYNC_INTERVAL) || 30000);
-      }
-    } else {
-      console.log("Running in MySQL-only mode. MongoDB will sync when available.");
-
-      setInterval(async () => {
-        if (!isMongoConnected()) {
-          try {
-            await connectMongoDB();
-            if (isMongoConnected()) {
-              console.log("MongoDB reconnected! Starting sync...");
-              startSyncScheduler(parseInt(process.env.SYNC_INTERVAL) || 30000);
-              await syncToMongo();
-            }
-          } catch (e) {}
-        }
-      }, 60000);
+    if (!mongoConn) {
+      console.error("Cannot start without MongoDB. Check MONGODB_URI in .env");
+      process.exit(1);
     }
 
     initGemini();

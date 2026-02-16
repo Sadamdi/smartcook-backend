@@ -1,7 +1,7 @@
 {
   "name": "smartcook-backend",
   "version": "1.0.0",
-  "description": "SmartCook Backend API - Node.js + Express + MongoDB + MySQL + Gemini AI",
+  "description": "SmartCook Backend API - Node.js + Express + MongoDB + Gemini AI",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -23,7 +23,6 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.2.1",
-    "mysql2": "^3.12.0",
     "nodemailer": "^8.0.1",
     "uuid": "^13.0.0"
   }
