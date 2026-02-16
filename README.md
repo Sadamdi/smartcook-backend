@@ -63,6 +63,8 @@ Salin `.env.example` menjadi `.env` dan isi semua value:
 cp .env.example .env
 ```
 
+**Environment Variables:**
+
 | Variable | Deskripsi |
 |---|---|
 | `PORT` | Port server (default: 3000) |
@@ -147,6 +149,7 @@ GET /api/health
 ```
 
 Response:
+
 ```json
 {
   "success": true,
@@ -166,6 +169,7 @@ Response:
 Daftar akun baru dengan email dan password.
 
 Request Body:
+
 ```json
 {
   "name": "Adam",
@@ -175,6 +179,7 @@ Request Body:
 ```
 
 Response (201):
+
 ```json
 {
   "success": true,
@@ -204,6 +209,7 @@ Response (201):
 Login dengan email dan password.
 
 Request Body:
+
 ```json
 {
   "email": "adam@email.com",
@@ -212,6 +218,7 @@ Request Body:
 ```
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -230,6 +237,7 @@ Response (200):
 Login/register via Google. Kirim Firebase ID token dari Google Sign In.
 
 Request Body:
+
 ```json
 {
   "id_token": "firebase_id_token_dari_google_sign_in"
@@ -237,6 +245,7 @@ Request Body:
 ```
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -255,6 +264,7 @@ Response (200):
 Login/register via Apple. Kirim Firebase ID token dari Apple Sign In.
 
 Request Body:
+
 ```json
 {
   "id_token": "firebase_id_token_dari_apple_sign_in"
@@ -262,6 +272,7 @@ Request Body:
 ```
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -280,6 +291,7 @@ Response (200):
 Kirim kode OTP ke email untuk reset password.
 
 Request Body:
+
 ```json
 {
   "email": "adam@email.com"
@@ -287,6 +299,7 @@ Request Body:
 ```
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -301,6 +314,7 @@ Response (200):
 Verifikasi kode OTP yang dikirim ke email.
 
 Request Body:
+
 ```json
 {
   "email": "adam@email.com",
@@ -309,6 +323,7 @@ Request Body:
 ```
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -323,6 +338,7 @@ Response (200):
 Reset password dengan OTP yang sudah terverifikasi.
 
 Request Body:
+
 ```json
 {
   "email": "adam@email.com",
@@ -332,6 +348,7 @@ Request Body:
 ```
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -350,6 +367,7 @@ Ambil profil user yang sedang login.
 Headers: `Authorization: Bearer <token>`
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -377,6 +395,7 @@ Update profil dasar user.
 Headers: `Authorization: Bearer <token>`
 
 Request Body:
+
 ```json
 {
   "name": "Adam Updated",
@@ -386,6 +405,7 @@ Request Body:
 ```
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -403,6 +423,7 @@ Simpan semua data onboarding sekaligus.
 Headers: `Authorization: Bearer <token>`
 
 Request Body:
+
 ```json
 {
   "name": "Adam",
@@ -416,6 +437,7 @@ Request Body:
 ```
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -448,6 +470,7 @@ Query Parameters:
 - `tags` - filter by tags, comma-separated (contoh: `Diet,Healthy & Clean`)
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -506,6 +529,7 @@ Query Parameters:
 - `limit` (default: 5)
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -547,6 +571,7 @@ List semua bahan di kulkas user.
 Headers: `Authorization: Bearer <token>`
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -571,6 +596,7 @@ Tambah bahan ke kulkas. Jika bahan sudah ada, quantity akan ditambahkan.
 Headers: `Authorization: Bearer <token>`
 
 Request Body:
+
 ```json
 {
   "ingredient_name": "Ayam",
@@ -583,6 +609,7 @@ Request Body:
 `category` harus salah satu: `"protein"`, `"karbo"`, `"sayur"`, `"bumbu"`
 
 Response (201):
+
 ```json
 {
   "success": true,
@@ -600,6 +627,7 @@ Update jumlah/satuan bahan.
 Headers: `Authorization: Bearer <token>`
 
 Request Body:
+
 ```json
 {
   "quantity": 300,
@@ -616,6 +644,7 @@ Hapus bahan dari kulkas.
 Headers: `Authorization: Bearer <token>`
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -649,6 +678,7 @@ Query Parameters:
 - `limit` (default: 10)
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -679,6 +709,7 @@ Headers: `Authorization: Bearer <token>`
 Contoh: `POST /api/favorites/65abc123def456`
 
 Response (201):
+
 ```json
 {
   "success": true,
@@ -711,6 +742,7 @@ Kirim pesan ke chatbot SmartCook (Gemini AI). Chatbot otomatis menerima konteks:
 Headers: `Authorization: Bearer <token>`
 
 Request Body:
+
 ```json
 {
   "message": "Aku punya ayam dan kentang di kulkas, bikin apa ya?"
@@ -718,6 +750,7 @@ Request Body:
 ```
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -737,6 +770,7 @@ Ambil riwayat chat user.
 Headers: `Authorization: Bearer <token>`
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -760,6 +794,7 @@ Hapus semua riwayat chat user.
 Headers: `Authorization: Bearer <token>`
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -776,6 +811,7 @@ Response (200):
 List semua gaya masak yang tersedia.
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -797,6 +833,7 @@ Response (200):
 List tipe makan.
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -820,6 +857,7 @@ Query Parameters:
 Contoh: `GET /api/categories/ingredients?category=protein`
 
 Response (200) tanpa filter:
+
 ```json
 {
   "success": true,
@@ -853,6 +891,7 @@ Pull semua data terbaru. Jika MongoDB terkoneksi, tarik dari sana dan cache ke S
 Headers: `Authorization: Bearer <token>`
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -878,6 +917,7 @@ Trigger sync manual. Push semua pending changes dari SQLite ke MongoDB.
 Headers: `Authorization: Bearer <token>`
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -888,6 +928,7 @@ Response (200):
 ```
 
 Jika MongoDB tidak tersedia:
+
 ```json
 {
   "success": true,
@@ -906,6 +947,7 @@ Cek status koneksi MongoDB dan jumlah item yang belum di-sync.
 Headers: `Authorization: Bearer <token>`
 
 Response (200):
+
 ```json
 {
   "success": true,
@@ -924,6 +966,7 @@ Response (200):
 ### MongoDB Collections
 
 **users**
+
 | Field | Type | Keterangan |
 |---|---|---|
 | email | String | Unique, lowercase |
@@ -942,6 +985,7 @@ Response (200):
 | otp_expires | Date | Waktu expired OTP |
 
 **recipes**
+
 | Field | Type | Keterangan |
 |---|---|---|
 | title | String | Nama resep |
@@ -960,6 +1004,7 @@ Response (200):
 | not_suitable_for | [String] | Tidak cocok untuk kondisi tertentu |
 
 **fridgeitems**
+
 | Field | Type | Keterangan |
 |---|---|---|
 | user_id | ObjectId | Referensi ke users |
@@ -969,18 +1014,21 @@ Response (200):
 | unit | String | Satuan |
 
 **favorites**
+
 | Field | Type | Keterangan |
 |---|---|---|
 | user_id | ObjectId | Referensi ke users |
 | recipe_id | ObjectId | Referensi ke recipes |
 
 **chathistories**
+
 | Field | Type | Keterangan |
 |---|---|---|
 | user_id | ObjectId | Referensi ke users |
 | messages | Array | `[{role: "user"/"model", content, timestamp}]` |
 
 **ingredients** (master data)
+
 | Field | Type | Keterangan |
 |---|---|---|
 | name | String | Nama bahan |
@@ -1135,5 +1183,3 @@ smartcook-backend/
     seed.js
   HOSTING.md               (Panduan deploy di VPS)
 ```
-#   s m a r t c o o k - b a c k e n d  
- 
