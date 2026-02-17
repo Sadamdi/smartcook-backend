@@ -79,21 +79,22 @@ const searchOpenverseImageUrl = async (q) => {
 	const query = String(q || '').trim();
 	if (!query) return '';
 
-	// Gunakan host resmi api.openverse.org (tanpa redirect)
+	// Gunakan host resmi api.openverse.org (tanpa redirect) dan paksa format JSON
 	const url =
 		`https://api.openverse.org/v1/images/` +
 		`?q=${encodeURIComponent(query)}` +
 		`&page_size=1` +
-		`&filter_dead=true`;
+		`&filter_dead=true` +
+		`&format=json`;
 
 	try {
 		console.log(`[OpenverseImageSearch] Request q="${query}"`);
 		const data = await requestJsonFollowRedirect(url);
-		const results = data?.results;
-		if (Array.isArray(results) && results.length > 0) {
+		const results = Array.isArray(data?.results) ? data.results : [];
+		if (results.length > 0) {
 			const r = results[0];
-			// Prefer direct image url if present; fallback thumbnail
-			const img = r?.url || r?.thumbnail || '';
+			// Prefer direct image url (field `url`), fallback ke `thumbnail` kalau perlu
+			const img = (r && (r.url || r.thumbnail)) || '';
 			if (img) {
 				console.log(`[OpenverseImageSearch] Success -> ${img}`);
 				return img;
