@@ -61,6 +61,8 @@ const looksLikeQuotaError = (err) => {
 	);
 };
 
+const is429QuotaExceeded = (err) => Number(err?.statusCode) === 429;
+
 /**
  * Cari 1 URL gambar lewat Google Custom Search API (searchType=image).
  * Return string URL atau '' jika tidak ada/semua key gagal.
@@ -133,5 +135,5 @@ const searchImageUrl = async (q, { safe = 'active' } = {}) => {
 	return '';
 };
 
-module.exports = { searchImageUrl, getAllSearchApiKeys };
+module.exports = { searchImageUrl, getAllSearchApiKeys, is429QuotaExceeded };
 
