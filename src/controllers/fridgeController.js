@@ -1,4 +1,5 @@
 const FridgeItem = require("../models/FridgeItem");
+const Recipe = require("../models/Recipe");
 const { logEvent, buildRequestContext } = require("../utils/logger");
 
 const getFridgeItems = async (req, res, next) => {
@@ -200,10 +201,84 @@ const getByCategory = async (req, res, next) => {
   }
 };
 
+const addMissingFromRecipe = async (req, res, next) => {
+  try {
+    const recipe = await Recipe.findById(req.params.id);
+    const ctx = buildRequestContext(req);
+    if (!recipe) {
+      logEvent("fridge_bulk_from_recipe", {
+        ...ctx,
+        success: false,
+        statusCode: 404,
+        reason: "recipe_not_found",
+        recipeId: req.params.id,
+      });
+      return res
+        .status(404)
+        .json({ success: false, message: "Resep tidak ditemukan." });
+    }
+    const existingItems = await FridgeItem.find({ user_id: req.user._id });
+    const existingMap = new Map();
+    for (const item of existingItems) {
+      const key = String(item.ingredient_name || "")
+        .toLowerCase()
+        .trim();
+      if (!key) continue;
+      if (!existingMap.has(key)) existingMap.set(key, item);
+    }
+    const raw = recipe.toObject();
+    const ingredients = Array.isArray(raw.ingredients) ? raw.ingredients : [];
+    const createdItems = [];
+    for (const ing of ingredients) {
+      const name = ing && typeof ing === "object" ? ing.name || "" : ing;
+      const key = String(name || "")
+        .toLowerCase()
+        .trim();
+      if (!key || existingMap.has(key)) continue;
+      const quantityRaw =
+        ing && typeof ing === "object" ? ing.quantity || "" : "";
+      const unitRaw = ing && typeof ing === "object" ? ing.unit || "" : "";
+      const quantityNumber =
+        typeof quantityRaw === "number"
+          ? quantityRaw
+          : parseFloat(String(quantityRaw).replace(/[^0-9.]/g, "")) || 0;
+      const unitValue = String(unitRaw || "").trim() || "pcs";
+      const item = await FridgeItem.create({
+        user_id: req.user._id,
+        ingredient_name: name,
+        category: "",
+        quantity: quantityNumber,
+        unit: unitValue,
+        expired_date: null,
+      });
+      existingMap.set(key, item);
+      createdItems.push(item);
+    }
+    logEvent("fridge_bulk_from_recipe", {
+      ...ctx,
+      success: true,
+      statusCode: 200,
+      recipeId: req.params.id,
+      createdCount: createdItems.length,
+    });
+    res.json({
+      success: true,
+      message: "Bahan dari resep ditambahkan ke kulkas.",
+      data: {
+        createdCount: createdItems.length,
+        items: createdItems,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getFridgeItems,
   addFridgeItem,
   updateFridgeItem,
   deleteFridgeItem,
   getByCategory,
+  addMissingFromRecipe,
 };

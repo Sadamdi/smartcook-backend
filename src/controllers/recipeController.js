@@ -11,6 +11,11 @@ const normalizeQuery = (q) =>
 		.trim()
 		.replace(/\s+/g, ' ');
 
+const normalizeIngredientName = (name) =>
+	String(name || '')
+		.toLowerCase()
+		.trim();
+
 const ensureImagesForRecipes = async (recipes, { maxToFill = 3 } = {}) => {
 	if (!Array.isArray(recipes) || recipes.length === 0) return recipes;
 	let filled = 0;
@@ -85,7 +90,7 @@ const parseGeminiRecipeJson = (rawText) => {
 	return parsed;
 };
 
-const buildRecipePrompt = ({ query, user }) => {
+const buildRecipePrompt = ({ query, user, fridgeNames }) => {
 	const allergies =
 		Array.isArray(user?.allergies) && user.allergies.length > 0
 			? user.allergies.join(', ')
@@ -97,6 +102,10 @@ const buildRecipePrompt = ({ query, user }) => {
 	const styles =
 		Array.isArray(user?.cooking_styles) && user.cooking_styles.length > 0
 			? user.cooking_styles.join(', ')
+			: '';
+	const fridgeList =
+		Array.isArray(fridgeNames) && fridgeNames.length > 0
+			? fridgeNames.join(', ')
 			: '';
 
 	return `Buat 1 resep masakan untuk: "${query}".
@@ -134,6 +143,7 @@ Konteks user (opsional):
 - Alergi: ${allergies || '-'}
 - Riwayat penyakit: ${medical || '-'}
 - Preferensi gaya masak: ${styles || '-'}
+- Bahan di kulkas (nama yang sebaiknya dipakai jika relevan): ${fridgeList || '-'}
 `;
 };
 
@@ -298,6 +308,64 @@ const getRecipeById = async (req, res, next) => {
 	}
 };
 
+const getRecipeWithFridge = async (req, res, next) => {
+	try {
+		let recipe = await Recipe.findById(req.params.id);
+		const ctx = buildRequestContext(req);
+		if (!recipe) {
+			logEvent('recipe_with_fridge', {
+				...ctx,
+				success: false,
+				statusCode: 404,
+				reason: 'not_found',
+				recipeId: req.params.id,
+			});
+			return res
+				.status(404)
+				.json({ success: false, message: 'Resep tidak ditemukan.' });
+		}
+		if (!recipe.image_url) {
+			const imageUrl = await searchBestImageUrl(recipe.title);
+			if (imageUrl) {
+				recipe.image_url = imageUrl;
+				await recipe.save();
+			}
+		}
+		const fridgeItems = await FridgeItem.find({ user_id: req.user._id });
+		const fridgeNames = new Map();
+		for (const item of fridgeItems) {
+			const key = normalizeIngredientName(item.ingredient_name);
+			if (!key) continue;
+			if (!fridgeNames.has(key)) fridgeNames.set(key, item);
+		}
+		const raw = recipe.toObject();
+		const ing = Array.isArray(raw.ingredients) ? raw.ingredients : [];
+		const ingredientsWithFlag = ing.map((it) => {
+			const name = it && typeof it === 'object' ? it.name || '' : it;
+			const key = normalizeIngredientName(name);
+			const available = key && fridgeNames.has(key);
+			return {
+				...it,
+				name,
+				in_fridge: available,
+			};
+		});
+		logEvent('recipe_with_fridge', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			recipeId: req.params.id,
+			ingredientsCount: ingredientsWithFlag.length,
+		});
+		res.json({
+			success: true,
+			data: { ...raw, ingredients: ingredientsWithFlag },
+		});
+	} catch (error) {
+		next(error);
+	}
+};
+
 const searchRecipes = async (req, res, next) => {
 	try {
 		const { q, page = 1, limit = 10 } = req.query;
@@ -363,6 +431,15 @@ const aiSearchRecipes = async (req, res, next) => {
 				.json({ success: false, message: 'Query pencarian wajib diisi.' });
 		}
 
+		const fridgeItems = await FridgeItem.find({ user_id: req.user._id });
+		const fridgeNames = [
+			...new Set(
+				fridgeItems
+					.map((i) => String(i.ingredient_name || '').trim())
+					.filter((s) => s),
+			),
+		];
+
 		const query = String(q).trim();
 		const norm = normalizeQuery(query);
 
@@ -380,7 +457,11 @@ const aiSearchRecipes = async (req, res, next) => {
 			.sort({ score: { $meta: 'textScore' } })
 			.limit(5);
 
-		const prompt = buildRecipePrompt({ query, user: req.user });
+		const prompt = buildRecipePrompt({
+			query,
+			user: req.user,
+			fridgeNames,
+		});
 		const result = await retryWithAllKeys(async () => {
 			const model = getGeminiModel();
 			return await model.generateContent(prompt);
@@ -660,6 +741,7 @@ const getByMealType = async (req, res, next) => {
 module.exports = {
 	getRecipes,
 	getRecipeById,
+	getRecipeWithFridge,
 	searchRecipes,
 	aiSearchRecipes,
 	queryRecipes,
