@@ -1,6 +1,31 @@
 const mongoose = require("mongoose");
 
 const recipeSchema = new mongoose.Schema({
+  // seed: dari data awal/curated, ai: hasil generate AI dari user search
+  source: {
+    type: String,
+    enum: ["seed", "ai"],
+    default: "seed",
+    index: true,
+  },
+  // nullable untuk resep seed
+  created_by: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    default: null,
+    index: true,
+  },
+  // query asli yang memicu pembuatan resep AI
+  origin_query: {
+    type: String,
+    default: "",
+  },
+  // query yang dinormalisasi untuk pooling hasil pencarian (global)
+  origin_query_norm: {
+    type: String,
+    default: "",
+    index: true,
+  },
   title: {
     type: String,
     required: true,
@@ -76,5 +101,6 @@ recipeSchema.index({ title: "text", description: "text", tags: "text" });
 recipeSchema.index({ meal_type: 1 });
 recipeSchema.index({ category: 1 });
 recipeSchema.index({ tags: 1 });
+recipeSchema.index({ origin_query_norm: 1, source: 1 });
 
 module.exports = mongoose.model("Recipe", recipeSchema);
