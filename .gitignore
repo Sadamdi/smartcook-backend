@@ -6,6 +6,16 @@ node_modules/
 
 # Firebase Service Account (sensitive)
 serviceAccountKey.json
+smartcook-*.json
+*service-account*.json
+*firebase-adminsdk*.json
+
+# Local state / data that may contain keys
+data/api-key-state.json
+
+# Private keys / certificates
+*.pem
+*.p12
 
 # Database files (SQLite)
 *.db

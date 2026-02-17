@@ -1,4 +1,11 @@
 const https = require('https');
+const {
+	GOOGLE_IMAGE_STATE_FILE,
+	isKeyLimitedToday,
+	markKeyLimitedToday,
+	isServiceLimitedToday,
+	markServiceLimitedToday,
+} = require('../utils/jsonStateStore');
 
 const truncate = (s, max = 800) => {
 	const str = String(s ?? '');
@@ -71,15 +78,47 @@ const searchImageUrl = async (q, { safe = 'active' } = {}) => {
 	const query = String(q || '').trim();
 	if (!query) return '';
 
+	// Jika seluruh service Google sudah ditandai limited untuk hari ini, jangan coba lagi.
+	if (await isServiceLimitedToday(GOOGLE_IMAGE_STATE_FILE, 'google-image')) {
+		console.log(
+			`[GoogleImageSearch] Service google-image sudah limited hari ini, skip query="${query}"`,
+		);
+		return '';
+	}
+
 	const cx = (process.env.SEARCH_ENGINE_ID || '').trim();
 	if (!cx) {
 		console.warn('[GoogleImageSearch] SEARCH_ENGINE_ID belum diset di .env');
 		return '';
 	}
 
-	const keys = getAllSearchApiKeys();
-	if (keys.length === 0) {
+	const allKeys = getAllSearchApiKeys();
+	if (allKeys.length === 0) {
 		console.warn('[GoogleImageSearch] SEARCH_API_KEY belum diset di .env');
+		return '';
+	}
+
+	// Filter key yang sudah limited hari ini
+	const keys = [];
+	for (let i = 0; i < allKeys.length; i++) {
+		const label = i === 0 ? 'SEARCH_API_KEY' : `SEARCH_API_KEY${i}`;
+		// eslint-disable-next-line no-await-in-loop
+		const limited = await isKeyLimitedToday(GOOGLE_IMAGE_STATE_FILE, label);
+		if (limited) {
+			continue;
+		}
+		keys.push({ key: allKeys[i], label });
+	}
+
+	if (keys.length === 0) {
+		console.warn(
+			'[GoogleImageSearch] Semua key sudah limited untuk hari ini, skip semua request.',
+		);
+		await markServiceLimitedToday(
+			GOOGLE_IMAGE_STATE_FILE,
+			'google-image',
+			'Semua key limited dari cache state',
+		);
 		return '';
 	}
 
@@ -87,8 +126,7 @@ const searchImageUrl = async (q, { safe = 'active' } = {}) => {
 
 	let lastErr;
 	for (let i = 0; i < keys.length; i++) {
-		const key = keys[i];
-		const label = i === 0 ? 'SEARCH_API_KEY' : `SEARCH_API_KEY${i}`;
+		const { key, label } = keys[i];
 		const url =
 			`https://www.googleapis.com/customsearch/v1` +
 			`?searchType=image&num=1&safe=${encodeURIComponent(safe)}` +
@@ -118,11 +156,21 @@ const searchImageUrl = async (q, { safe = 'active' } = {}) => {
 			lastErr = err;
 			const status = err?.statusCode;
 			console.warn(
-				`[GoogleImageSearch] Fail key="${label}" status=${status ?? '-'} msg="${err.message}" body="${truncate(err?.body)}"`,
+				`[GoogleImageSearch] Fail key="${label}" status=${
+					status ?? '-'
+				} msg="${err.message}" body="${truncate(err?.body)}"`,
 			);
-			// Kalau quota/rate limit dan masih ada key lain, lanjut coba berikutnya
-			if (looksLikeQuotaError(err) && i < keys.length - 1) continue;
-			// Kalau error lain, tetap coba key berikutnya (lebih robust)
+
+			// Kalau quota/rate limit -> tandai key limited untuk hari ini
+			if (looksLikeQuotaError(err)) {
+				await markKeyLimitedToday(
+					GOOGLE_IMAGE_STATE_FILE,
+					label,
+					`Quota/rate limit: HTTP ${status ?? '-'} ${err.message}`,
+				);
+			}
+
+			// Kalau masih ada key lain, lanjut coba berikutnya
 			if (i < keys.length - 1) continue;
 		}
 	}
@@ -131,6 +179,14 @@ const searchImageUrl = async (q, { safe = 'active' } = {}) => {
 		console.warn(
 			`[GoogleImageSearch] Semua key gagal untuk q="${query}": ${lastErr.message}`,
 		);
+		// Kalau error terakhir berkaitan dengan quota/rate limit, anggap seluruh service habis hari ini
+		if (looksLikeQuotaError(lastErr)) {
+			await markServiceLimitedToday(
+				GOOGLE_IMAGE_STATE_FILE,
+				'google-image',
+				`Semua key gagal karena quota/rate limit: ${lastErr.message}`,
+			);
+		}
 	}
 	return '';
 };

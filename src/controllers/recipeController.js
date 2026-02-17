@@ -2,12 +2,7 @@ const Recipe = require('../models/Recipe');
 const FridgeItem = require('../models/FridgeItem');
 const User = require('../models/User');
 const { getGeminiModel, retryWithAllKeys } = require('../config/gemini');
-const {
-	searchImageUrl,
-	is429QuotaExceeded,
-} = require('../config/googleImageSearch');
-const { searchOpenverseImageUrl } = require('../config/openverseImageSearch');
-const { scrapeImageUrlFromWeb } = require('../config/imageScraper');
+const { searchBestImageUrl } = require('../services/imageSearchService');
 
 const normalizeQuery = (q) =>
 	String(q || '')
@@ -27,14 +22,7 @@ const ensureImagesForRecipes = async (recipes, { maxToFill = 3 } = {}) => {
 		if (!title) continue;
 
 		console.log(`[Recipe] Cari gambar untuk "${title}"`);
-		let url = await searchImageUrl(title);
-		if (!url) {
-			// Fallback: Openverse (tanpa API key) untuk menghindari quota Google
-			url = await searchOpenverseImageUrl(title);
-		}
-		if (!url) {
-			url = await scrapeImageUrlFromWeb(title);
-		}
+		const url = await searchBestImageUrl(title);
 		if (!url) continue;
 
 		const id = r?._id || r?.id;
@@ -219,15 +207,9 @@ const getRecipeById = async (req, res, next) => {
 				.status(404)
 				.json({ success: false, message: 'Resep tidak ditemukan.' });
 		}
-		// Auto-fill gambar jika masih kosong
+		// Auto-fill gambar jika masih kosong (best-effort, dengan limit & fallback dari imageSearchService)
 		if (!recipe.image_url) {
-			let imageUrl = await searchImageUrl(recipe.title);
-			if (!imageUrl) {
-				imageUrl = await searchOpenverseImageUrl(recipe.title);
-			}
-			if (!imageUrl) {
-				imageUrl = await scrapeImageUrlFromWeb(recipe.title);
-			}
+			const imageUrl = await searchBestImageUrl(recipe.title);
 			if (imageUrl) {
 				recipe.image_url = imageUrl;
 				await recipe.save();
@@ -307,15 +289,9 @@ const aiSearchRecipes = async (req, res, next) => {
 		const generatedJson = parseGeminiRecipeJson(rawText);
 
 		// cari gambar berdasarkan title (lebih akurat daripada query)
-		let imageUrl = await searchImageUrl(generatedJson?.title || query);
-		if (!imageUrl) {
-			imageUrl = await searchOpenverseImageUrl(
-				generatedJson?.title || query,
-			);
-		}
-		if (!imageUrl) {
-			imageUrl = await scrapeImageUrlFromWeb(generatedJson?.title || query);
-		}
+		const imageUrl = await searchBestImageUrl(
+			generatedJson?.title || query,
+		);
 		const doc = toRecipeDocShape(generatedJson, {
 			imageUrl,
 			originQuery: query,
@@ -325,7 +301,8 @@ const aiSearchRecipes = async (req, res, next) => {
 
 		const created = await Recipe.create(doc);
 
-		// Best-effort: isi gambar untuk hasil existing juga (dibatasi)
+		// Best-effort: isi gambar untuk hasil existing juga (dibatasi).
+		// Tidak masalah sedikit lebih lambat di endpoint ini karena dipakai khusus pencarian AI.
 		await ensureImagesForRecipes(existingAi, { maxToFill: 2 });
 		await ensureImagesForRecipes(seedMatches, { maxToFill: 2 });
 
@@ -405,7 +382,14 @@ const getRecommendations = async (req, res, next) => {
 			recipes = await Recipe.aggregate([{ $sample: { size } }]);
 		}
 
-		await ensureImagesForRecipes(recipes, { maxToFill: Math.min(5, size) });
+		// Best-effort: isi sebagian gambar. Tidak perlu ditunggu untuk respon ke home.
+		ensureImagesForRecipes(recipes, {
+			maxToFill: Math.min(5, size),
+		}).catch((err) =>
+			console.warn(
+				`[Recipe] ensureImagesForRecipes error di getRecommendations: ${err.message}`,
+			),
+		);
 
 		res.json({ success: true, data: recipes });
 	} catch (error) {
@@ -433,7 +417,12 @@ const getByMealType = async (req, res, next) => {
 			Recipe.countDocuments({ meal_type: type }),
 		]);
 
-		await ensureImagesForRecipes(recipes, { maxToFill: 3 });
+		// Best-effort: isi sebagian gambar per meal type. Tidak perlu ditunggu untuk respon ke home.
+		ensureImagesForRecipes(recipes, { maxToFill: 3 }).catch((err) =>
+			console.warn(
+				`[Recipe] ensureImagesForRecipes error di getByMealType: ${err.message}`,
+			),
+		);
 
 		res.json({
 			success: true,
