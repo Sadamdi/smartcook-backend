@@ -112,8 +112,23 @@ const sendMessageStream = async (req, res, next) => {
 				.json({ success: false, message: 'Pesan tidak boleh kosong.' });
 		}
 
-		const fridgeItems = await FridgeItem.find({ user_id: req.user._id });
-		let chatDoc = await ChatHistory.findOne({ user_id: req.user._id });
+		// Set headers untuk SSE
+		res.setHeader('Content-Type', 'text/event-stream');
+		res.setHeader('Cache-Control', 'no-cache');
+		res.setHeader('Connection', 'keep-alive');
+		res.setHeader('X-Accel-Buffering', 'no');
+		res.flushHeaders?.();
+
+		// Kirim heartbeat segera untuk memberi tahu frontend koneksi sudah siap
+		res.write(`data: ${JSON.stringify({ status: 'connected' })}\n\n`);
+		if (typeof res.flush === 'function') res.flush();
+
+		// Optimasi: Query database secara paralel dengan Promise.all()
+		const [fridgeItems, chatDoc] = await Promise.all([
+			FridgeItem.find({ user_id: req.user._id }),
+			ChatHistory.findOne({ user_id: req.user._id }),
+		]);
+
 		let history = [];
 		if (chatDoc && chatDoc.messages.length > 0) {
 			const recent = chatDoc.messages.slice(-20);
@@ -125,12 +140,6 @@ const sendMessageStream = async (req, res, next) => {
 
 		const userContext = buildUserContext(req.user, fridgeItems);
 		const fullMessage = userContext ? `${message}\n${userContext}` : message;
-
-		res.setHeader('Content-Type', 'text/event-stream');
-		res.setHeader('Cache-Control', 'no-cache');
-		res.setHeader('Connection', 'keep-alive');
-		res.setHeader('X-Accel-Buffering', 'no');
-		res.flushHeaders?.();
 
 		const result = await retryWithAllKeys(async () => {
 			const model = getGeminiModel();
@@ -169,9 +178,22 @@ const sendMessageStream = async (req, res, next) => {
 		);
 
 		res.write(`data: ${JSON.stringify({ done: true, fullReply: finalReply })}\n\n`);
+		if (typeof res.flush === 'function') res.flush();
 		res.end();
 	} catch (error) {
-		next(error);
+		// Kirim error melalui SSE jika masih bisa
+		if (!res.headersSent) {
+			res.setHeader('Content-Type', 'text/event-stream');
+			res.flushHeaders?.();
+		}
+		try {
+			res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+			if (typeof res.flush === 'function') res.flush();
+			res.end();
+		} catch (e) {
+			// Jika sudah tidak bisa menulis, pass ke error handler
+			next(error);
+		}
 	}
 };
 
