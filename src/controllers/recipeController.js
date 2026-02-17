@@ -39,6 +39,31 @@ const ensureImagesForRecipes = async (recipes, { maxToFill = 3 } = {}) => {
 	return recipes;
 };
 
+const normalizeAllergyLabel = (label) => {
+	const s = String(label || '').trim();
+	if (!s) return '';
+	const lower = s.toLowerCase();
+	if (lower.includes('seafood') || lower.includes('seafod')) return 'Seafod';
+	if (lower.includes('fish') || lower.includes('ikan')) return 'Ikan';
+	if (lower.includes('peanut') || lower.includes('kacang')) return 'Kacang';
+	if (lower.includes('soy') || lower.includes('kedelai')) return 'Kedelai';
+	if (lower.includes('wheat') || lower.includes('gandum')) return 'Gandum';
+	if (
+		lower.includes('milk') ||
+		lower.includes('dairy') ||
+		lower.includes('susu sapi')
+	)
+		return 'Susu Sapi';
+	if (lower.includes('susu')) return 'Susu';
+
+	// Default: title case sederhana
+	return s
+		.split(' ')
+		.filter(Boolean)
+		.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+		.join(' ');
+};
+
 const extractLikelyJsonObject = (text) => {
 	if (!text) return '';
 	let s = String(text).trim();
@@ -82,6 +107,8 @@ Kamu harus menjawab dalam JSON murni (tanpa teks tambahan, tanpa markdown). Sche
   "category": string,
   "meal_type": ["breakfast"|"lunch"|"dinner"],
   "tags": [string],
+  "suitable_for": [string],      // daftar alergi yang aman dikonsumsi untuk resep ini
+  "not_suitable_for": [string],  // daftar alergi yang tidak aman (resep ini mengandung pemicu)
   "prep_time": number,   // menit
   "cook_time": number,   // menit
   "servings": number,
@@ -95,6 +122,12 @@ Aturan:
 - Waktu & kalori harus masuk akal.
 - Jangan memasukkan bahan yang termasuk alergi/riwayat penyakit jika disebut.
 - Buat langkah jelas 6-12 langkah.
+-
+// Tentang alergi:
+- Gunakan hanya label alergi dari daftar berikut jika relevan:
+- ["Kacang", "Telur", "Susu", "Ikan", "Seafod", "Kedelai", "Gandum", "Susu Sapi"]
+- Jika ragu apakah aman untuk suatu alergi, lebih baik masukkan ke not_suitable_for.
+- Selalu isi "suitable_for" dan "not_suitable_for" sebagai array (boleh kosong jika tidak relevan).
 
 Konteks user (opsional):
 - Alergi: ${allergies || '-'}
@@ -119,7 +152,8 @@ const toRecipeDocShape = (generated, { imageUrl, originQuery, originQueryNorm, u
 		? Number(generated.servings)
 		: 1;
 
-	const nutrition = generated?.nutrition_info && typeof generated.nutrition_info === 'object'
+	const nutrition =
+		generated?.nutrition_info && typeof generated.nutrition_info === 'object'
 		? generated.nutrition_info
 		: {};
 
@@ -139,6 +173,24 @@ const toRecipeDocShape = (generated, { imageUrl, originQuery, originQueryNorm, u
 			instruction: String(st?.instruction || st?.text || st || '').trim(),
 		}))
 		.filter((st) => st.instruction);
+
+	const suitableRaw = Array.isArray(generated?.suitable_for)
+		? generated.suitable_for
+		: [];
+	const notSuitableRaw = Array.isArray(generated?.not_suitable_for)
+		? generated.not_suitable_for
+		: [];
+
+	const suitableSet = new Set(
+		suitableRaw
+			.map((it) => normalizeAllergyLabel(it))
+			.filter((it) => !!it),
+	);
+	const notSuitableSet = new Set(
+		notSuitableRaw
+			.map((it) => normalizeAllergyLabel(it))
+			.filter((it) => !!it),
+	);
 
 	return {
 		source: 'ai',
@@ -162,6 +214,8 @@ const toRecipeDocShape = (generated, { imageUrl, originQuery, originQueryNorm, u
 		},
 		ingredients,
 		steps,
+		suitable_for: Array.from(suitableSet),
+		not_suitable_for: Array.from(notSuitableSet),
 	};
 };
 
@@ -307,7 +361,27 @@ const aiSearchRecipes = async (req, res, next) => {
 		await ensureImagesForRecipes(seedMatches, { maxToFill: 2 });
 
 		// Gabungkan hasil: existing pool + seed + generated (generated terakhir biar “resep baru” terlihat)
-		const results = [...existingAi, ...seedMatches, created];
+		let results = [...existingAi, ...seedMatches, created];
+
+		// Filter berdasarkan alergi user jika ada metadata not_suitable_for
+		const userAllergiesRaw = Array.isArray(req.user?.allergies)
+			? req.user.allergies
+			: [];
+		const userAllergies = userAllergiesRaw
+			.map((a) => normalizeAllergyLabel(a))
+			.filter((a) => !!a);
+		if (userAllergies.length > 0) {
+			const allergySet = new Set(userAllergies);
+			results = results.filter((r) => {
+				const raw = Array.isArray(r?.not_suitable_for)
+					? r.not_suitable_for
+					: [];
+				const normalized = raw
+					.map((a) => normalizeAllergyLabel(a))
+					.filter((a) => !!a);
+				return !normalized.some((a) => allergySet.has(a));
+			});
+		}
 
 		res.json({
 			success: true,
@@ -315,7 +389,7 @@ const aiSearchRecipes = async (req, res, next) => {
 				query,
 				existing: existingAi,
 				seed_matches: seedMatches,
-				generated: created,
+					generated: created,
 				results,
 			},
 		});
@@ -349,16 +423,41 @@ const queryRecipes = async (req, res, next) => {
 				.limit(10),
 		]);
 
-		await ensureImagesForRecipes(existingAi, { maxToFill: 3 });
-		await ensureImagesForRecipes(seedMatches, { maxToFill: 3 });
+		const userAllergiesRaw = Array.isArray(req.user?.allergies)
+			? req.user.allergies
+			: [];
+		const userAllergies = userAllergiesRaw
+			.map((a) => normalizeAllergyLabel(a))
+			.filter((a) => !!a);
+		const allergySet =
+			userAllergies.length > 0 ? new Set(userAllergies) : null;
+
+		const filterByAllergy = (list) => {
+			if (!allergySet) return list;
+			return list.filter((r) => {
+				const raw = Array.isArray(r?.not_suitable_for)
+					? r.not_suitable_for
+					: [];
+				const normalized = raw
+					.map((a) => normalizeAllergyLabel(a))
+					.filter((a) => !!a);
+				return !normalized.some((a) => allergySet.has(a));
+			});
+		};
+
+		const filteredExisting = filterByAllergy(existingAi);
+		const filteredSeed = filterByAllergy(seedMatches);
+
+		await ensureImagesForRecipes(filteredExisting, { maxToFill: 3 });
+		await ensureImagesForRecipes(filteredSeed, { maxToFill: 3 });
 
 		res.json({
 			success: true,
 			data: {
 				query,
-				existing: existingAi,
-				seed_matches: seedMatches,
-				results: [...existingAi, ...seedMatches],
+					existing: filteredExisting,
+					seed_matches: filteredSeed,
+					results: [...filteredExisting, ...filteredSeed],
 			},
 		});
 	} catch (error) {
@@ -370,14 +469,33 @@ const getRecommendations = async (req, res, next) => {
 	try {
 		const { limit = 5 } = req.query;
 		const size = parseInt(limit);
+		const userAllergiesRaw = Array.isArray(req.user?.allergies)
+			? req.user.allergies
+			: [];
+		const userAllergies = userAllergiesRaw
+			.map((a) => normalizeAllergyLabel(a))
+			.filter((a) => !!a);
 
-		// Prioritas: random dari resep yang pernah dicari (source: ai)
+		const matchSafeForUser =
+			userAllergies.length > 0
+				? { not_suitable_for: { $nin: userAllergies } }
+				: {};
+
+		// Prioritas: random dari resep yang pernah dicari (source: ai) dan aman untuk alergi user
 		let recipes = await Recipe.aggregate([
-			{ $match: { source: 'ai' } },
+			{ $match: { source: 'ai', ...matchSafeForUser } },
 			{ $sample: { size } },
 		]);
 
-		// Fallback: kalau belum ada resep hasil search AI, ambil random dari semua resep
+		// Fallback 1: kalau belum cukup, ambil dari semua resep yang aman untuk alergi user
+		if (!recipes || recipes.length === 0) {
+			recipes = await Recipe.aggregate([
+				{ $match: matchSafeForUser },
+				{ $sample: { size } },
+			]);
+		}
+
+		// Fallback 2: jika masih kosong, ambil random dari semua resep (tanpa filter)
 		if (!recipes || recipes.length === 0) {
 			recipes = await Recipe.aggregate([{ $sample: { size } }]);
 		}
