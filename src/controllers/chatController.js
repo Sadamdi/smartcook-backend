@@ -103,6 +103,78 @@ const getHistory = async (req, res, next) => {
 	}
 };
 
+const sendMessageStream = async (req, res, next) => {
+	try {
+		const { message } = req.body;
+		if (!message || !message.trim()) {
+			return res
+				.status(400)
+				.json({ success: false, message: 'Pesan tidak boleh kosong.' });
+		}
+
+		const fridgeItems = await FridgeItem.find({ user_id: req.user._id });
+		let chatDoc = await ChatHistory.findOne({ user_id: req.user._id });
+		let history = [];
+		if (chatDoc && chatDoc.messages.length > 0) {
+			const recent = chatDoc.messages.slice(-20);
+			history = recent.map((msg) => ({
+				role: msg.role,
+				parts: [{ text: msg.content }],
+			}));
+		}
+
+		const userContext = buildUserContext(req.user, fridgeItems);
+		const fullMessage = userContext ? `${message}\n${userContext}` : message;
+
+		res.setHeader('Content-Type', 'text/event-stream');
+		res.setHeader('Cache-Control', 'no-cache');
+		res.setHeader('Connection', 'keep-alive');
+		res.setHeader('X-Accel-Buffering', 'no');
+		res.flushHeaders?.();
+
+		const result = await retryWithAllKeys(async () => {
+			const model = getGeminiModel();
+			const chat = model.startChat({ history });
+			return await chat.sendMessageStream(fullMessage);
+		});
+
+		for await (const chunk of result.stream) {
+			const chunkText = chunk.text?.() ?? '';
+			if (chunkText) {
+				res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+				if (typeof res.flush === 'function') res.flush();
+			}
+		}
+
+		const finalResponse = await result.response;
+		const finalReply = finalResponse?.text?.() ?? '';
+		const newUserMsg = {
+			role: 'user',
+			content: message,
+			timestamp: new Date(),
+		};
+		const newModelMsg = {
+			role: 'model',
+			content: finalReply,
+			timestamp: new Date(),
+		};
+		const allMessages = chatDoc
+			? [...chatDoc.messages, newUserMsg, newModelMsg]
+			: [newUserMsg, newModelMsg];
+
+		await ChatHistory.findOneAndUpdate(
+			{ user_id: req.user._id },
+			{ messages: allMessages, updated_at: new Date() },
+			{ upsert: true },
+		);
+
+		res.write(`data: ${JSON.stringify({ done: true, fullReply: finalReply })}\n\n`);
+		res.end();
+	} catch (error) {
+		next(error);
+	}
+};
+
 const deleteHistory = async (req, res, next) => {
 	try {
 		await ChatHistory.findOneAndDelete({ user_id: req.user._id });
@@ -115,4 +187,4 @@ const deleteHistory = async (req, res, next) => {
 	}
 };
 
-module.exports = { sendMessage, getHistory, deleteHistory };
+module.exports = { sendMessage, sendMessageStream, getHistory, deleteHistory };
