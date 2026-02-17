@@ -18,10 +18,12 @@ const requestJson = (url, { headers = {} } = {}) =>
 					res.on('data', (c) => (raw += c));
 					res.on('end', () => {
 						const status = res.statusCode || 0;
+						// Redirect handling will be done by wrapper
 						if (status < 200 || status >= 300) {
 							const err = new Error(`HTTP ${status}`);
 							err.statusCode = status;
 							err.body = raw;
+							err.headers = res.headers;
 							return reject(err);
 						}
 						try {
@@ -38,6 +40,32 @@ const requestJson = (url, { headers = {} } = {}) =>
 			.on('error', reject);
 	});
 
+const isRedirect = (code) => [301, 302, 303, 307, 308].includes(Number(code));
+
+const requestJsonFollowRedirect = async (url, { headers = {} } = {}, maxHops = 3) => {
+	let current = url;
+	for (let hop = 0; hop <= maxHops; hop++) {
+		try {
+			return await requestJson(current, { headers });
+		} catch (err) {
+			const status = Number(err?.statusCode);
+			if (isRedirect(status) && hop < maxHops) {
+				const location = err?.headers?.location || err?.headers?.Location;
+				if (location) {
+					const next = new URL(location, current).toString();
+					console.log(
+						`[OpenverseImageSearch] Redirect ${status} -> ${next}`,
+					);
+					current = next;
+					continue;
+				}
+			}
+			throw err;
+		}
+	}
+	throw new Error('Too many redirects');
+};
+
 /**
  * Openverse image search (tanpa API key).
  * Return 1 URL image atau ''.
@@ -49,15 +77,14 @@ const searchOpenverseImageUrl = async (q) => {
 	if (!query) return '';
 
 	const url =
-		`https://api.openverse.engineering/v1/images` +
+		`https://api.openverse.engineering/v1/images/` +
 		`?q=${encodeURIComponent(query)}` +
 		`&page_size=1` +
-		`&license_type=commercial` +
 		`&filter_dead=true`;
 
 	try {
 		console.log(`[OpenverseImageSearch] Request q="${query}"`);
-		const data = await requestJson(url);
+		const data = await requestJsonFollowRedirect(url);
 		const results = data?.results;
 		if (Array.isArray(results) && results.length > 0) {
 			const r = results[0];
@@ -71,8 +98,9 @@ const searchOpenverseImageUrl = async (q) => {
 		console.log(`[OpenverseImageSearch] No results untuk q="${query}"`);
 		return '';
 	} catch (err) {
+		const loc = err?.headers?.location || err?.headers?.Location;
 		console.warn(
-			`[OpenverseImageSearch] Fail q="${query}" status=${err?.statusCode ?? '-'} msg="${err?.message ?? err}"`,
+			`[OpenverseImageSearch] Fail q="${query}" status=${err?.statusCode ?? '-'} location=${loc ?? '-'} msg="${err?.message ?? err}"`,
 		);
 		return '';
 	}
