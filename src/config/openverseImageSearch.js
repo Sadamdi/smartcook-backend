@@ -1,17 +1,41 @@
 const https = require('https');
 
+/**
+ * Headers dasar untuk semua request ke Openverse.
+ * - WAJIB: User-Agent berisi identitas app + kontak.
+ * - OPSIONAL: Authorization Bearer token jika OPENVERSE_AUTH_TOKEN diset.
+ * - OPSIONAL: client_id untuk tracking rate-limit jika OPENVERSE_CLIENT_ID diset.
+ */
+const buildBaseHeaders = () => {
+	const headers = {
+		Accept: 'application/json',
+		// Ikuti rekomendasi Openverse: sertakan identitas app + email kontak
+		'User-Agent': 'SmartCook/1.0 (smartycook321@gmail.com)',
+	};
+
+	if (process.env.OPENVERSE_AUTH_TOKEN) {
+		headers.Authorization = `Bearer ${process.env.OPENVERSE_AUTH_TOKEN}`;
+	}
+
+	if (process.env.OPENVERSE_CLIENT_ID) {
+		headers['X-Openverse-Client'] = process.env.OPENVERSE_CLIENT_ID;
+	}
+
+	return headers;
+};
+
 const requestJson = (url, { headers = {} } = {}) =>
 	new Promise((resolve, reject) => {
+		const finalHeaders = {
+			...buildBaseHeaders(),
+			...headers,
+		};
+
 		https
 			.get(
 				url,
 				{
-					headers: {
-						Accept: 'application/json',
-						// Ikuti rekomendasi Openverse: sertakan identitas app + email kontak
-						'User-Agent': 'SmartCook/1.0 (smartycook321@gmail.com)',
-						...headers,
-					},
+					headers: finalHeaders,
 				},
 				(res) => {
 					let raw = '';
@@ -104,8 +128,14 @@ const searchOpenverseImageUrl = async (q) => {
 		return '';
 	} catch (err) {
 		const loc = err?.headers?.location || err?.headers?.Location;
+		const status = err?.statusCode ?? '-';
+		let bodyPreview = '';
+		if (err?.body) {
+			const raw = String(err.body);
+			bodyPreview = raw.length > 300 ? `${raw.slice(0, 300)}...` : raw;
+		}
 		console.warn(
-			`[OpenverseImageSearch] Fail q="${query}" status=${err?.statusCode ?? '-'} location=${loc ?? '-'} msg="${err?.message ?? err}"`,
+			`[OpenverseImageSearch] Fail q="${query}" status=${status} location=${loc ?? '-'} msg="${err?.message ?? err}" body="${bodyPreview}"`,
 		);
 		return '';
 	}

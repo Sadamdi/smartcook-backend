@@ -95,7 +95,15 @@ const googleAuth = async (req, res, next) => {
     const decodedToken = await admin.auth().verifyIdToken(id_token);
     const { email, name, uid } = decodedToken;
 
-    let user = await User.findOne({ email: email.toLowerCase() });
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email dari akun Google tidak ditemukan.",
+      });
+    }
+
+    // Ambil user beserta field password (kalau ada) untuk cek kebutuhan set-password.
+    let user = await User.findOne({ email: email.toLowerCase() }).select("+password");
 
     if (!user) {
       user = await User.create({
@@ -111,17 +119,85 @@ const googleAuth = async (req, res, next) => {
       }
     }
 
+    const needsPassword = !user.password;
     const token = generateToken(user._id);
+
+    // pastikan password tidak ikut terkirim ke client
+    const safeUser = user.toJSON();
 
     res.json({
       success: true,
       message: "Login Google berhasil.",
-      data: { user, token },
+      data: { user: safeUser, token, needs_password: needsPassword },
     });
   } catch (error) {
     if (error.code === "auth/id-token-expired") {
       return res.status(401).json({ success: false, message: "Google token sudah expired." });
     }
+    next(error);
+  }
+};
+
+const setGooglePassword = async (req, res, next) => {
+  try {
+    const { new_password, confirm_password } = req.body;
+
+    if (!new_password || !confirm_password) {
+      return res.status(400).json({
+        success: false,
+        message: "Password baru dan konfirmasi wajib diisi.",
+      });
+    }
+
+    if (new_password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password minimal 6 karakter.",
+      });
+    }
+
+    if (new_password !== confirm_password) {
+      return res.status(400).json({
+        success: false,
+        message: "Konfirmasi password tidak sama.",
+      });
+    }
+
+    const user = await User.findById(req.user._id).select("+password");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User tidak ditemukan.",
+      });
+    }
+
+    if (user.auth_provider !== "google") {
+      return res.status(400).json({
+        success: false,
+        message: "Set password hanya tersedia untuk akun Google.",
+      });
+    }
+
+    if (user.password) {
+      return res.status(400).json({
+        success: false,
+        message: "Password sudah pernah diset untuk akun ini.",
+      });
+    }
+
+    user.password = new_password;
+    await user.save();
+
+    const token = generateToken(user._id);
+    const safeUser = user.toJSON();
+
+    res.json({
+      success: true,
+      message: "Password berhasil diset.",
+      data: { user: safeUser, token },
+    });
+  } catch (error) {
     next(error);
   }
 };
@@ -234,4 +310,5 @@ module.exports = {
   forgotPassword,
   verifyOTP,
   resetPassword,
+  setGooglePassword,
 };
