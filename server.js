@@ -8,6 +8,7 @@ const { connectMongoDB, isMongoConnected } = require('./src/config/db');
 const { initGemini } = require('./src/config/gemini');
 const { errorHandler } = require('./src/middleware/errorHandler');
 const { validateApiKey } = require('./src/middleware/apiKey');
+const { logEvent, buildRequestContext } = require('./src/utils/logger');
 
 const authRoutes = require('./src/routes/auth');
 const userRoutes = require('./src/routes/user');
@@ -27,12 +28,47 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use('/api/', validateApiKey);
 
+const formatRetryAfter = (ms) => {
+	const seconds = Math.ceil(ms / 1000);
+	if (seconds < 60) {
+		return `${seconds} detik`;
+	}
+	const minutes = Math.ceil(seconds / 60);
+	return `${minutes} menit`;
+};
+
 const limiter = rateLimit({
-	windowMs: 15 * 60 * 1000,
-	max: 100,
-	message: {
-		success: false,
-		message: 'Terlalu banyak request. Coba lagi nanti.',
+	windowMs: 1 * 60 * 1000,
+	max: 1000,
+	standardHeaders: true,
+	legacyHeaders: false,
+	handler: (req, res, next, options) => {
+		const rateLimitInfo = req.rateLimit || {};
+		const resetTime = rateLimitInfo.resetTime
+			? new Date(rateLimitInfo.resetTime)
+			: new Date(Date.now() + options.windowMs);
+		const retryAfterMs = Math.max(0, resetTime.getTime() - Date.now());
+		const retryAfter = formatRetryAfter(retryAfterMs);
+
+		const ctx = buildRequestContext(req);
+		logEvent('rate_limit_hit', {
+			...ctx,
+			success: false,
+			statusCode: 429,
+			limit: options.max,
+			windowMs: options.windowMs,
+			retryAfterMs,
+			retryAfter,
+			resetTime: resetTime.toISOString(),
+		});
+
+		res.status(429).json({
+			success: false,
+			message: `Terlalu banyak request. Coba lagi dalam ${retryAfter}.`,
+			retryAfter,
+			retryAfterSeconds: Math.ceil(retryAfterMs / 1000),
+			resetTime: resetTime.toISOString(),
+		});
 	},
 });
 app.use('/api/', limiter);
@@ -40,9 +76,36 @@ app.use('/api/', limiter);
 const chatLimiter = rateLimit({
 	windowMs: 1 * 60 * 1000,
 	max: 20,
-	message: {
-		success: false,
-		message: 'Terlalu banyak pesan. Tunggu sebentar.',
+	standardHeaders: true,
+	legacyHeaders: false,
+	handler: (req, res, next, options) => {
+		const rateLimitInfo = req.rateLimit || {};
+		const resetTime = rateLimitInfo.resetTime
+			? new Date(rateLimitInfo.resetTime)
+			: new Date(Date.now() + options.windowMs);
+		const retryAfterMs = Math.max(0, resetTime.getTime() - Date.now());
+		const retryAfter = formatRetryAfter(retryAfterMs);
+
+		const ctx = buildRequestContext(req);
+		logEvent('rate_limit_hit', {
+			...ctx,
+			success: false,
+			statusCode: 429,
+			limit: options.max,
+			windowMs: options.windowMs,
+			retryAfterMs,
+			retryAfter,
+			resetTime: resetTime.toISOString(),
+			endpoint: 'chat',
+		});
+
+		res.status(429).json({
+			success: false,
+			message: `Terlalu banyak pesan. Coba lagi dalam ${retryAfter}.`,
+			retryAfter,
+			retryAfterSeconds: Math.ceil(retryAfterMs / 1000),
+			resetTime: resetTime.toISOString(),
+		});
 	},
 });
 app.use('/api/chat', chatLimiter);
