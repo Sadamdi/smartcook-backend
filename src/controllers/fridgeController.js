@@ -2,6 +2,44 @@ const FridgeItem = require("../models/FridgeItem");
 const Recipe = require("../models/Recipe");
 const { logEvent, buildRequestContext } = require("../utils/logger");
 
+const classifyIngredientCategory = (name) => {
+  const s = String(name || "").toLowerCase();
+  if (!s) return "bumbu";
+  if (
+    s.includes("ayam") ||
+    s.includes("daging") ||
+    s.includes("telur") ||
+    s.includes("ikan") ||
+    s.includes("udang") ||
+    s.includes("sapi")
+  ) {
+    return "protein";
+  }
+  if (
+    s.includes("nasi") ||
+    s.includes("beras") ||
+    s.includes("mie") ||
+    s.includes("mi") ||
+    s.includes("kentang") ||
+    s.includes("roti") ||
+    s.includes("tepung")
+  ) {
+    return "karbo";
+  }
+  if (
+    s.includes("wortel") ||
+    s.includes("kol") ||
+    s.includes("kubis") ||
+    s.includes("selada") ||
+    s.includes("tomat") ||
+    s.includes("bayam") ||
+    s.includes("sayur")
+  ) {
+    return "sayur";
+  }
+  return "bumbu";
+};
+
 const getFridgeItems = async (req, res, next) => {
   try {
     const items = await FridgeItem.find({ user_id: req.user._id }).sort({ category: 1, ingredient_name: 1 });
@@ -246,7 +284,7 @@ const addMissingFromRecipe = async (req, res, next) => {
       const item = await FridgeItem.create({
         user_id: req.user._id,
         ingredient_name: name,
-        category: "",
+        category: classifyIngredientCategory(name),
         quantity: quantityNumber,
         unit: unitValue,
         expired_date: null,
