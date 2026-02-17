@@ -21,12 +21,14 @@ const ensureImagesForRecipes = async (recipes, { maxToFill = 3 } = {}) => {
 		const title = r?.title ? String(r.title) : '';
 		if (!title) continue;
 
+		console.log(`[Recipe] Cari gambar untuk "${title}"`);
 		const url = await searchImageUrl(title);
 		if (!url) continue;
 
 		const id = r?._id || r?.id;
 		if (id) {
 			await Recipe.findByIdAndUpdate(id, { image_url: url });
+			console.log(`[Recipe] Simpan image_url untuk recipeId=${id}: ${url}`);
 		}
 		// update response object/doc too
 		try {
@@ -319,36 +321,65 @@ const aiSearchRecipes = async (req, res, next) => {
 	}
 };
 
+// Existing-only search untuk autocomplete/background refresh (tanpa generate AI)
+const queryRecipes = async (req, res, next) => {
+	try {
+		const { q } = req.query;
+		if (!q || !String(q).trim()) {
+			return res
+				.status(400)
+				.json({ success: false, message: 'Query pencarian wajib diisi.' });
+		}
+
+		const query = String(q).trim();
+		const norm = normalizeQuery(query);
+
+		const [existingAi, seedMatches] = await Promise.all([
+			Recipe.find({ source: 'ai', origin_query_norm: norm })
+				.sort({ created_at: -1 })
+				.limit(20),
+			Recipe.find({
+				source: { $ne: 'ai' },
+				$text: { $search: query },
+			})
+				.sort({ score: { $meta: 'textScore' } })
+				.limit(10),
+		]);
+
+		await ensureImagesForRecipes(existingAi, { maxToFill: 3 });
+		await ensureImagesForRecipes(seedMatches, { maxToFill: 3 });
+
+		res.json({
+			success: true,
+			data: {
+				query,
+				existing: existingAi,
+				seed_matches: seedMatches,
+				results: [...existingAi, ...seedMatches],
+			},
+		});
+	} catch (error) {
+		next(error);
+	}
+};
+
 const getRecommendations = async (req, res, next) => {
 	try {
 		const { limit = 5 } = req.query;
-		const mongoFridge = await FridgeItem.find({ user_id: req.user._id });
-		let ingredientNames = mongoFridge.map((item) =>
-			item.ingredient_name.toLowerCase(),
-		);
-		const user = await User.findById(req.user._id);
+		const size = parseInt(limit);
 
-		let query = {};
-		if (ingredientNames.length > 0) {
-			query['ingredients.name'] = {
-				$in: ingredientNames.map((name) => new RegExp(name, 'i')),
-			};
-		}
-		if (user.allergies && user.allergies.length > 0) {
-			query.not_suitable_for = { $nin: user.allergies };
-		}
-		if (user.cooking_styles && user.cooking_styles.length > 0) {
-			query.tags = { $in: user.cooking_styles };
+		// Prioritas: random dari resep yang pernah dicari (source: ai)
+		let recipes = await Recipe.aggregate([
+			{ $match: { source: 'ai' } },
+			{ $sample: { size } },
+		]);
+
+		// Fallback: kalau belum ada resep hasil search AI, ambil random dari semua resep
+		if (!recipes || recipes.length === 0) {
+			recipes = await Recipe.aggregate([{ $sample: { size } }]);
 		}
 
-		let recipes = await Recipe.find(query).limit(parseInt(limit));
-		if (recipes.length === 0) {
-			recipes = await Recipe.aggregate([
-				{ $sample: { size: parseInt(limit) } },
-			]);
-		}
-
-		await ensureImagesForRecipes(recipes, { maxToFill: Math.min(5, parseInt(limit)) });
+		await ensureImagesForRecipes(recipes, { maxToFill: Math.min(5, size) });
 
 		res.json({ success: true, data: recipes });
 	} catch (error) {
@@ -398,6 +429,7 @@ module.exports = {
 	getRecipeById,
 	searchRecipes,
 	aiSearchRecipes,
+	queryRecipes,
 	getRecommendations,
 	getByMealType,
 };

@@ -1,5 +1,11 @@
 const https = require('https');
 
+const truncate = (s, max = 800) => {
+	const str = String(s ?? '');
+	if (str.length <= max) return str;
+	return `${str.slice(0, max)}...<truncated>`;
+};
+
 const getAllSearchApiKeys = () => {
 	const keys = [];
 	if (process.env.SEARCH_API_KEY && process.env.SEARCH_API_KEY.trim()) {
@@ -25,6 +31,7 @@ const requestJson = (url) =>
 						const err = new Error(`HTTP ${status}`);
 						err.statusCode = status;
 						err.body = raw;
+						err.headers = res.headers;
 						return reject(err);
 					}
 					try {
@@ -79,25 +86,37 @@ const searchImageUrl = async (q, { safe = 'active' } = {}) => {
 	let lastErr;
 	for (let i = 0; i < keys.length; i++) {
 		const key = keys[i];
+		const label = i === 0 ? 'SEARCH_API_KEY' : `SEARCH_API_KEY${i}`;
 		const url =
 			`https://www.googleapis.com/customsearch/v1` +
 			`?searchType=image&num=1&safe=${encodeURIComponent(safe)}` +
 			`&q=${encodedQ}&cx=${encodeURIComponent(cx)}&key=${encodeURIComponent(key)}`;
 
 		try {
+			console.log(
+				`[GoogleImageSearch] Request q="${query}" cx="${cx}" key="${label}"`,
+			);
 			const data = await requestJson(url);
 			const items = data?.items;
 			if (Array.isArray(items) && items.length > 0) {
 				// CSE biasanya pakai 'link' untuk URL gambar
 				const link = items[0]?.link || items[0]?.url;
-				if (link && typeof link === 'string') return link;
+				if (link && typeof link === 'string') {
+					console.log(
+						`[GoogleImageSearch] Success key="${label}" -> ${link}`,
+					);
+					return link;
+				}
 			}
+			console.log(
+				`[GoogleImageSearch] No items untuk q="${query}" key="${label}"`,
+			);
 			return '';
 		} catch (err) {
 			lastErr = err;
-			const label = i === 0 ? 'SEARCH_API_KEY' : `SEARCH_API_KEY${i}`;
+			const status = err?.statusCode;
 			console.warn(
-				`[GoogleImageSearch] Gagal dengan ${label} (index ${i}): ${err.message}`,
+				`[GoogleImageSearch] Fail key="${label}" status=${status ?? '-'} msg="${err.message}" body="${truncate(err?.body)}"`,
 			);
 			// Kalau quota/rate limit dan masih ada key lain, lanjut coba berikutnya
 			if (looksLikeQuotaError(err) && i < keys.length - 1) continue;
@@ -107,7 +126,9 @@ const searchImageUrl = async (q, { safe = 'active' } = {}) => {
 	}
 
 	if (lastErr) {
-		console.warn('[GoogleImageSearch] Semua key gagal:', lastErr.message);
+		console.warn(
+			`[GoogleImageSearch] Semua key gagal untuk q="${query}": ${lastErr.message}`,
+		);
 	}
 	return '';
 };

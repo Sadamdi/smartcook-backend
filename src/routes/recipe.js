@@ -5,6 +5,7 @@ const {
   getRecipes,
   getRecipeById,
   searchRecipes,
+  queryRecipes,
   aiSearchRecipes,
   getRecommendations,
   getByMealType,
@@ -12,6 +13,7 @@ const {
 
 router.get("/", getRecipes);
 router.get("/search", searchRecipes);
+router.get("/query", protect, queryRecipes);
 router.get("/ai-search", protect, aiSearchRecipes);
 router.get("/recommendations", protect, getRecommendations);
 router.get("/by-meal/:type", getByMealType);
