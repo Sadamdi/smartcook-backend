@@ -2,8 +2,12 @@ const Recipe = require('../models/Recipe');
 const FridgeItem = require('../models/FridgeItem');
 const User = require('../models/User');
 const { getGeminiModel, retryWithAllKeys } = require('../config/gemini');
-const { searchImageUrl, is429QuotaExceeded } = require('../config/googleImageSearch');
+const {
+	searchImageUrl,
+	is429QuotaExceeded,
+} = require('../config/googleImageSearch');
 const { searchOpenverseImageUrl } = require('../config/openverseImageSearch');
+const { scrapeImageUrlFromWeb } = require('../config/imageScraper');
 
 const normalizeQuery = (q) =>
 	String(q || '')
@@ -27,6 +31,9 @@ const ensureImagesForRecipes = async (recipes, { maxToFill = 3 } = {}) => {
 		if (!url) {
 			// Fallback: Openverse (tanpa API key) untuk menghindari quota Google
 			url = await searchOpenverseImageUrl(title);
+		}
+		if (!url) {
+			url = await scrapeImageUrlFromWeb(title);
 		}
 		if (!url) continue;
 
@@ -218,6 +225,9 @@ const getRecipeById = async (req, res, next) => {
 			if (!imageUrl) {
 				imageUrl = await searchOpenverseImageUrl(recipe.title);
 			}
+			if (!imageUrl) {
+				imageUrl = await scrapeImageUrlFromWeb(recipe.title);
+			}
 			if (imageUrl) {
 				recipe.image_url = imageUrl;
 				await recipe.save();
@@ -299,7 +309,12 @@ const aiSearchRecipes = async (req, res, next) => {
 		// cari gambar berdasarkan title (lebih akurat daripada query)
 		let imageUrl = await searchImageUrl(generatedJson?.title || query);
 		if (!imageUrl) {
-			imageUrl = await searchOpenverseImageUrl(generatedJson?.title || query);
+			imageUrl = await searchOpenverseImageUrl(
+				generatedJson?.title || query,
+			);
+		}
+		if (!imageUrl) {
+			imageUrl = await scrapeImageUrlFromWeb(generatedJson?.title || query);
 		}
 		const doc = toRecipeDocShape(generatedJson, {
 			imageUrl,
