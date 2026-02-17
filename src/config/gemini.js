@@ -63,7 +63,9 @@ const initGeminiWithKey = (apiKey) => {
 const initGemini = () => {
 	const keys = getAllApiKeys();
 	if (keys.length === 0) {
-		throw new Error('Tidak ada GOOGLE_API_KEY yang tersedia di environment variables');
+		throw new Error(
+			'Tidak ada GOOGLE_API_KEY yang tersedia di environment variables',
+		);
 	}
 	currentKeyIndex = 0;
 	return initGeminiWithKey(keys[0]);
@@ -89,20 +91,23 @@ const retryWithAllKeys = async (operation) => {
 	}
 
 	let lastError;
-	
+
 	for (let i = 0; i < keys.length; i++) {
 		try {
 			// Inisialisasi ulang dengan key yang berbeda
 			initGeminiWithKey(keys[i]);
 			currentKeyIndex = i;
-			
+
 			// Coba operasi
 			const result = await operation();
 			return result;
 		} catch (error) {
 			lastError = error;
-			console.error(`Error dengan GOOGLE_API_KEY${i === 0 ? '' : i} (index ${i}):`, error.message);
-			
+			console.error(
+				`Error dengan GOOGLE_API_KEY${i === 0 ? '' : i} (index ${i}):`,
+				error.message,
+			);
+
 			// Jika ini bukan key terakhir, coba key berikutnya
 			if (i < keys.length - 1) {
 				console.log(`Mencoba key berikutnya (${i + 2}/${keys.length})...`);
@@ -110,15 +115,15 @@ const retryWithAllKeys = async (operation) => {
 			}
 		}
 	}
-	
+
 	// Semua key gagal
 	throw lastError || new Error('Semua API key gagal');
 };
 
-module.exports = { 
-	initGemini, 
-	getGeminiModel, 
+module.exports = {
+	initGemini,
+	getGeminiModel,
 	SYSTEM_PROMPT,
 	retryWithAllKeys,
-	getAllApiKeys
+	getAllApiKeys,
 };

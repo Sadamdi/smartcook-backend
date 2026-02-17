@@ -38,9 +38,8 @@ const chatHistorySchema = new mongoose.Schema({
 
 chatHistorySchema.index({ user_id: 1 });
 
-chatHistorySchema.pre("save", function (next) {
+chatHistorySchema.pre("save", async function () {
   this.updated_at = new Date();
-  next();
 });
 
 module.exports = mongoose.model("ChatHistory", chatHistorySchema);

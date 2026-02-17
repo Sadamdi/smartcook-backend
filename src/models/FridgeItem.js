@@ -41,9 +41,8 @@ const fridgeItemSchema = new mongoose.Schema({
 fridgeItemSchema.index({ user_id: 1 });
 fridgeItemSchema.index({ user_id: 1, category: 1 });
 
-fridgeItemSchema.pre("save", function (next) {
+fridgeItemSchema.pre("save", async function () {
   this.updated_at = new Date();
-  next();
 });
 
 module.exports = mongoose.model("FridgeItem", fridgeItemSchema);
