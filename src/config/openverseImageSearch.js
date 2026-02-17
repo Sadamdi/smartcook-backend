@@ -8,7 +8,8 @@ const requestJson = (url, { headers = {} } = {}) =>
 				{
 					headers: {
 						Accept: 'application/json',
-						'User-Agent': 'SmartCook/1.0 (image search)',
+						// Ikuti rekomendasi Openverse: sertakan identitas app + email kontak
+						'User-Agent': 'SmartCook/1.0 (smartycook321@gmail.com)',
 						...headers,
 					},
 				},
@@ -42,7 +43,11 @@ const requestJson = (url, { headers = {} } = {}) =>
 
 const isRedirect = (code) => [301, 302, 303, 307, 308].includes(Number(code));
 
-const requestJsonFollowRedirect = async (url, { headers = {} } = {}, maxHops = 3) => {
+const requestJsonFollowRedirect = async (
+	url,
+	{ headers = {} } = {},
+	maxHops = 3,
+) => {
 	let current = url;
 	for (let hop = 0; hop <= maxHops; hop++) {
 		try {
@@ -53,9 +58,7 @@ const requestJsonFollowRedirect = async (url, { headers = {} } = {}, maxHops = 3
 				const location = err?.headers?.location || err?.headers?.Location;
 				if (location) {
 					const next = new URL(location, current).toString();
-					console.log(
-						`[OpenverseImageSearch] Redirect ${status} -> ${next}`,
-					);
+					console.log(`[OpenverseImageSearch] Redirect ${status} -> ${next}`);
 					current = next;
 					continue;
 				}
@@ -76,8 +79,9 @@ const searchOpenverseImageUrl = async (q) => {
 	const query = String(q || '').trim();
 	if (!query) return '';
 
+	// Gunakan host resmi api.openverse.org (tanpa redirect)
 	const url =
-		`https://api.openverse.engineering/v1/images/` +
+		`https://api.openverse.org/v1/images/` +
 		`?q=${encodeURIComponent(query)}` +
 		`&page_size=1` +
 		`&filter_dead=true`;
@@ -107,4 +111,3 @@ const searchOpenverseImageUrl = async (q) => {
 };
 
 module.exports = { searchOpenverseImageUrl };
-

@@ -28,10 +28,25 @@ const initFirebase = () => {
 		process.env.FIREBASE_CLIENT_EMAIL &&
 		process.env.FIREBASE_PRIVATE_KEY
 	) {
+		const rawKey = process.env.FIREBASE_PRIVATE_KEY;
+		const normalizedKey = rawKey.replace(/\\n/g, '\n');
+
+		if (normalizedKey.includes('YOUR_PRIVATE_KEY_HERE')) {
+			console.error(
+				'[Firebase] FIREBASE_PRIVATE_KEY masih placeholder (YOUR_PRIVATE_KEY_HERE).',
+			);
+			console.error(
+				'Silakan isi dengan private key asli dari Service Account JSON di Firebase Console.',
+			);
+			throw new Error(
+				'Konfigurasi Firebase belum lengkap: FIREBASE_PRIVATE_KEY masih placeholder.',
+			);
+		}
+
 		credential = admin.credential.cert({
 			projectId: process.env.FIREBASE_PROJECT_ID,
 			clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-			privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+			privateKey: normalizedKey,
 		});
 	} else if (fs.existsSync(googleServicesPath)) {
 		const googleServices = require(googleServicesPath);
