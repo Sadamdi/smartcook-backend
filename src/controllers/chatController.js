@@ -10,6 +10,7 @@ const {
 	loadApiKeyState,
 	is429Error,
 } = require('../config/gemini');
+const { logEvent, buildRequestContext } = require('../utils/logger');
 
 const buildUserContext = (user, fridgeItems) => {
 	const parts = [];
@@ -36,6 +37,13 @@ const sendMessage = async (req, res, next) => {
 	try {
 		const { message } = req.body;
 		if (!message || !message.trim()) {
+			const ctx = buildRequestContext(req);
+			logEvent('chat_send', {
+				...ctx,
+				success: false,
+				statusCode: 400,
+				reason: 'empty_message',
+			});
 			return res
 				.status(400)
 				.json({ success: false, message: 'Pesan tidak boleh kosong.' });
@@ -55,7 +63,6 @@ const sendMessage = async (req, res, next) => {
 		const userContext = buildUserContext(req.user, fridgeItems);
 		const fullMessage = userContext ? `${message}\n${userContext}` : message;
 
-		// Retry dengan semua API key yang tersedia jika terjadi error
 		const result = await retryWithAllKeys(async () => {
 			const model = getGeminiModel();
 			const chat = model.startChat({ history });
@@ -85,6 +92,15 @@ const sendMessage = async (req, res, next) => {
 			{ upsert: true },
 		);
 
+		const ctx = buildRequestContext(req);
+		logEvent('chat_send', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			messageLength: message.length,
+			replyLength: reply.length,
+		});
+
 		res.json({
 			success: true,
 			data: { reply, timestamp: new Date() },
@@ -98,8 +114,22 @@ const getHistory = async (req, res, next) => {
 	try {
 		const chatDoc = await ChatHistory.findOne({ user_id: req.user._id });
 		if (!chatDoc) {
+			const ctx = buildRequestContext(req);
+			logEvent('chat_history', {
+				...ctx,
+				success: true,
+				statusCode: 200,
+				messagesCount: 0,
+			});
 			return res.json({ success: true, data: { messages: [] } });
 		}
+		const ctx = buildRequestContext(req);
+		logEvent('chat_history', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			messagesCount: chatDoc.messages.length,
+		});
 		res.json({
 			success: true,
 			data: {
@@ -116,24 +146,29 @@ const getHistory = async (req, res, next) => {
 const sendMessageStream = async (req, res, next) => {
 	try {
 		const { message } = req.body;
+		const start = Date.now();
 		if (!message || !message.trim()) {
+			const ctx = buildRequestContext(req);
+			logEvent('chat_send_stream', {
+				...ctx,
+				success: false,
+				statusCode: 400,
+				reason: 'empty_message',
+			});
 			return res
 				.status(400)
 				.json({ success: false, message: 'Pesan tidak boleh kosong.' });
 		}
 
-		// Set headers untuk SSE
 		res.setHeader('Content-Type', 'text/event-stream');
 		res.setHeader('Cache-Control', 'no-cache');
 		res.setHeader('Connection', 'keep-alive');
 		res.setHeader('X-Accel-Buffering', 'no');
 		res.flushHeaders?.();
 
-		// Kirim heartbeat segera untuk memberi tahu frontend koneksi sudah siap
 		res.write(`data: ${JSON.stringify({ status: 'connected' })}\n\n`);
 		if (typeof res.flush === 'function') res.flush();
 
-		// Optimasi: Query database secara paralel dengan Promise.all()
 		const [fridgeItems, chatDoc] = await Promise.all([
 			FridgeItem.find({ user_id: req.user._id }),
 			ChatHistory.findOne({ user_id: req.user._id }),
@@ -156,7 +191,6 @@ const sendMessageStream = async (req, res, next) => {
 
 		let finalReply = '';
 		const startIndex = loadApiKeyState();
-		// Coba dari key yang terakhir berhasil, lalu sisanya
 		for (let i = 0; i < keys.length; i++) {
 			const keyIndex = (startIndex + i) % keys.length;
 			try {
@@ -214,8 +248,18 @@ const sendMessageStream = async (req, res, next) => {
 		res.write(`data: ${JSON.stringify({ done: true, fullReply })}\n\n`);
 		if (typeof res.flush === 'function') res.flush();
 		res.end();
+
+		const ctx = buildRequestContext(req);
+		const durationMs = Date.now() - start;
+		logEvent('chat_send_stream', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			messageLength: message.length,
+			replyLength: finalReply.length,
+			durationMs,
+		});
 	} catch (error) {
-		// Kirim error melalui SSE jika masih bisa
 		if (!res.headersSent) {
 			res.setHeader('Content-Type', 'text/event-stream');
 			res.flushHeaders?.();
@@ -225,15 +269,27 @@ const sendMessageStream = async (req, res, next) => {
 			if (typeof res.flush === 'function') res.flush();
 			res.end();
 		} catch (e) {
-			// Jika sudah tidak bisa menulis, pass ke error handler
 			next(error);
 		}
+		const ctx = buildRequestContext(req);
+		logEvent('chat_send_stream', {
+			...ctx,
+			success: false,
+			statusCode: 500,
+			reason: error.message,
+		});
 	}
 };
 
 const deleteHistory = async (req, res, next) => {
 	try {
 		await ChatHistory.findOneAndDelete({ user_id: req.user._id });
+		const ctx = buildRequestContext(req);
+		logEvent('chat_history_delete', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+		});
 		res.json({
 			success: true,
 			message: 'Riwayat chat berhasil dihapus.',

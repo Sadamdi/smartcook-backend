@@ -1,5 +1,6 @@
 const Favorite = require('../models/Favorite');
 const Recipe = require('../models/Recipe');
+const { logEvent, buildRequestContext } = require('../utils/logger');
 
 const getFavorites = async (req, res, next) => {
 	try {
@@ -13,6 +14,13 @@ const getFavorites = async (req, res, next) => {
 				.limit(parseInt(limit)),
 			Favorite.countDocuments({ user_id: req.user._id }),
 		]);
+		const ctx = buildRequestContext(req);
+		logEvent('favorite_list', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			count: favorites.length,
+		});
 		res.json({
 			success: true,
 			data: favorites.map((fav) => ({
@@ -38,6 +46,14 @@ const addFavorite = async (req, res, next) => {
 		const { recipeId } = req.params;
 		const recipe = await Recipe.findById(recipeId);
 		if (!recipe) {
+			const ctx = buildRequestContext(req);
+			logEvent('favorite_add', {
+				...ctx,
+				success: false,
+				statusCode: 404,
+				reason: 'recipe_not_found',
+				recipeId,
+			});
 			return res
 				.status(404)
 				.json({ success: false, message: 'Resep tidak ditemukan.' });
@@ -47,6 +63,14 @@ const addFavorite = async (req, res, next) => {
 			recipe_id: recipeId,
 		});
 		if (existing) {
+			const ctx = buildRequestContext(req);
+			logEvent('favorite_add', {
+				...ctx,
+				success: false,
+				statusCode: 400,
+				reason: 'already_favorited',
+				recipeId,
+			});
 			return res
 				.status(400)
 				.json({ success: false, message: 'Resep sudah ada di favorit.' });
@@ -54,6 +78,14 @@ const addFavorite = async (req, res, next) => {
 		const fav = await Favorite.create({
 			user_id: req.user._id,
 			recipe_id: recipeId,
+		});
+		const ctx = buildRequestContext(req);
+		logEvent('favorite_add', {
+			...ctx,
+			success: true,
+			statusCode: 201,
+			recipeId,
+			favoriteId: fav._id.toString(),
 		});
 		res.status(201).json({
 			success: true,
@@ -73,10 +105,25 @@ const removeFavorite = async (req, res, next) => {
 			recipe_id: recipeId,
 		});
 		if (!deleted) {
+			const ctx = buildRequestContext(req);
+			logEvent('favorite_remove', {
+				...ctx,
+				success: false,
+				statusCode: 404,
+				reason: 'not_in_favorites',
+				recipeId,
+			});
 			return res
 				.status(404)
 				.json({ success: false, message: 'Resep tidak ada di favorit.' });
 		}
+		const ctx = buildRequestContext(req);
+		logEvent('favorite_remove', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			recipeId,
+		});
 		res.json({
 			success: true,
 			message: 'Resep dihapus dari favorit.',

@@ -1,9 +1,16 @@
 const User = require("../models/User");
 const { generateOTP, isOTPValid, getOTPExpiry } = require("../utils/otp");
 const { sendOTPEmail } = require("../utils/email");
+const { logEvent, buildRequestContext } = require("../utils/logger");
 
 const getProfile = async (req, res, next) => {
   try {
+    const ctx = buildRequestContext(req);
+    logEvent("profile_get", {
+      ...ctx,
+      success: true,
+      statusCode: 200,
+    });
     res.json({
       success: true,
       data: req.user,
@@ -27,6 +34,14 @@ const updateProfile = async (req, res, next) => {
     const user = await User.findByIdAndUpdate(req.user._id, updates, {
       new: true,
       runValidators: true,
+    });
+
+    const ctx = buildRequestContext(req);
+    logEvent("profile_update", {
+      ...ctx,
+      success: true,
+      statusCode: 200,
+      updatedFields: Object.keys(updates),
     });
 
     res.json({
@@ -66,6 +81,19 @@ const saveOnboarding = async (req, res, next) => {
       runValidators: true,
     });
 
+    const ctx = buildRequestContext(req);
+    logEvent("onboarding_save", {
+      ...ctx,
+      success: true,
+      statusCode: 200,
+      hasAllergies: Array.isArray(allergies) && allergies.length > 0,
+      hasMedicalHistory:
+        Array.isArray(medical_history) && medical_history.length > 0,
+      hasCookingStyles:
+        Array.isArray(cooking_styles) && cooking_styles.length > 0,
+      hasEquipment: Array.isArray(equipment) && equipment.length > 0,
+    });
+
     res.json({
       success: true,
       message: "Data onboarding berhasil disimpan.",
@@ -76,11 +104,17 @@ const saveOnboarding = async (req, res, next) => {
   }
 };
 
-// Kirim OTP ke email user untuk perubahan password (opsi tanpa input password lama).
 const sendPasswordChangeOTP = async (req, res, next) => {
   try {
     const user = await User.findById(req.user._id);
     if (!user) {
+      const ctx = buildRequestContext(req);
+      logEvent("profile_password_otp_send", {
+        ...ctx,
+        success: false,
+        statusCode: 404,
+        reason: "user_not_found",
+      });
       return res
         .status(404)
         .json({ success: false, message: "User tidak ditemukan." });
@@ -93,6 +127,14 @@ const sendPasswordChangeOTP = async (req, res, next) => {
 
     await sendOTPEmail(user.email, otp);
 
+    const ctx = buildRequestContext(req);
+    logEvent("profile_password_otp_send", {
+      ...ctx,
+      success: true,
+      statusCode: 200,
+      email: user.email,
+    });
+
     res.json({
       success: true,
       message: "Kode OTP untuk ganti password telah dikirim ke email kamu.",
@@ -102,13 +144,18 @@ const sendPasswordChangeOTP = async (req, res, next) => {
   }
 };
 
-// Ganti password dari halaman profil.
-// Bisa pakai password lama ATAU OTP (yang dikirim lewat sendPasswordChangeOTP).
 const changePasswordFromProfile = async (req, res, next) => {
   try {
     const { current_password, otp, new_password } = req.body;
 
     if (!new_password || new_password.length < 6) {
+      const ctx = buildRequestContext(req);
+      logEvent("profile_password_change", {
+        ...ctx,
+        success: false,
+        statusCode: 400,
+        reason: "password_too_short",
+      });
       return res.status(400).json({
         success: false,
         message: "Password baru minimal 6 karakter.",
@@ -117,30 +164,56 @@ const changePasswordFromProfile = async (req, res, next) => {
 
     const user = await User.findById(req.user._id).select("+password");
     if (!user) {
+      const ctx = buildRequestContext(req);
+      logEvent("profile_password_change", {
+        ...ctx,
+        success: false,
+        statusCode: 404,
+        reason: "user_not_found",
+      });
       return res
         .status(404)
         .json({ success: false, message: "User tidak ditemukan." });
     }
 
     if (!current_password && !otp) {
+      const ctx = buildRequestContext(req);
+      logEvent("profile_password_change", {
+        ...ctx,
+        success: false,
+        statusCode: 400,
+        reason: "missing_current_or_otp",
+      });
       return res.status(400).json({
         success: false,
         message: "Harus mengirimkan password lama atau OTP.",
       });
     }
 
-    // Opsi 1: verifikasi pakai password lama
     if (current_password) {
       const ok = await user.comparePassword(current_password);
       if (!ok) {
+        const ctx = buildRequestContext(req);
+        logEvent("profile_password_change", {
+          ...ctx,
+          success: false,
+          statusCode: 400,
+          reason: "current_password_mismatch",
+        });
         return res.status(400).json({
           success: false,
           message: "Password lama tidak cocok.",
         });
       }
     } else if (otp) {
-      // Opsi 2: verifikasi pakai OTP
       if (!isOTPValid(user) || user.otp_code !== otp) {
+        const ctx = buildRequestContext(req);
+        logEvent("profile_password_change", {
+          ...ctx,
+          success: false,
+          statusCode: 400,
+          reason: "otp_invalid",
+        });
         return res.status(400).json({
           success: false,
           message: "Kode OTP tidak valid atau sudah expired.",
@@ -149,10 +222,17 @@ const changePasswordFromProfile = async (req, res, next) => {
     }
 
     user.password = new_password;
-    // bersihkan OTP setelah dipakai
     user.otp_code = null;
     user.otp_expires = null;
     await user.save();
+
+    const ctx = buildRequestContext(req);
+    logEvent("profile_password_change", {
+      ...ctx,
+      success: true,
+      statusCode: 200,
+      email: user.email,
+    });
 
     res.json({
       success: true,
@@ -164,12 +244,18 @@ const changePasswordFromProfile = async (req, res, next) => {
   }
 };
 
-// Kirim OTP untuk ganti email. OTP dikirim ke email lama, perubahan disimpan sementara.
 const sendEmailChangeOTP = async (req, res, next) => {
   try {
     const { new_email } = req.body;
 
     if (!new_email) {
+      const ctx = buildRequestContext(req);
+      logEvent("profile_email_otp_send", {
+        ...ctx,
+        success: false,
+        statusCode: 400,
+        reason: "missing_new_email",
+      });
       return res
         .status(400)
         .json({ success: false, message: "Email baru wajib diisi." });
@@ -178,6 +264,14 @@ const sendEmailChangeOTP = async (req, res, next) => {
     const normalized = new_email.toLowerCase();
 
     if (normalized === req.user.email) {
+      const ctx = buildRequestContext(req);
+      logEvent("profile_email_otp_send", {
+        ...ctx,
+        success: false,
+        statusCode: 400,
+        reason: "same_email",
+        email: normalized,
+      });
       return res.status(400).json({
         success: false,
         message: "Email baru tidak boleh sama dengan email lama.",
@@ -186,6 +280,14 @@ const sendEmailChangeOTP = async (req, res, next) => {
 
     const existing = await User.findOne({ email: normalized });
     if (existing && existing._id.toString() !== req.user._id.toString()) {
+      const ctx = buildRequestContext(req);
+      logEvent("profile_email_otp_send", {
+        ...ctx,
+        success: false,
+        statusCode: 400,
+        reason: "email_taken",
+        email: normalized,
+      });
       return res.status(400).json({
         success: false,
         message: "Email sudah digunakan oleh akun lain.",
@@ -194,6 +296,13 @@ const sendEmailChangeOTP = async (req, res, next) => {
 
     const user = await User.findById(req.user._id);
     if (!user) {
+      const ctx = buildRequestContext(req);
+      logEvent("profile_email_otp_send", {
+        ...ctx,
+        success: false,
+        statusCode: 404,
+        reason: "user_not_found",
+      });
       return res
         .status(404)
         .json({ success: false, message: "User tidak ditemukan." });
@@ -205,8 +314,15 @@ const sendEmailChangeOTP = async (req, res, next) => {
     user.otp_expires = getOTPExpiry();
     await user.save();
 
-    // Demi keamanan, kirim OTP ke email lama.
     await sendOTPEmail(user.email, otp);
+
+    const ctx = buildRequestContext(req);
+    logEvent("profile_email_otp_send", {
+      ...ctx,
+      success: true,
+      statusCode: 200,
+      email: normalized,
+    });
 
     res.json({
       success: true,
@@ -218,12 +334,18 @@ const sendEmailChangeOTP = async (req, res, next) => {
   }
 };
 
-// Konfirmasi ganti email dengan OTP.
 const confirmEmailChange = async (req, res, next) => {
   try {
     const { otp } = req.body;
 
     if (!otp) {
+      const ctx = buildRequestContext(req);
+      logEvent("profile_email_change", {
+        ...ctx,
+        success: false,
+        statusCode: 400,
+        reason: "missing_otp",
+      });
       return res
         .status(400)
         .json({ success: false, message: "Kode OTP wajib diisi." });
@@ -231,12 +353,26 @@ const confirmEmailChange = async (req, res, next) => {
 
     const user = await User.findById(req.user._id);
     if (!user) {
+      const ctx = buildRequestContext(req);
+      logEvent("profile_email_change", {
+        ...ctx,
+        success: false,
+        statusCode: 404,
+        reason: "user_not_found",
+      });
       return res
         .status(404)
         .json({ success: false, message: "User tidak ditemukan." });
     }
 
     if (!user.pending_email) {
+      const ctx = buildRequestContext(req);
+      logEvent("profile_email_change", {
+        ...ctx,
+        success: false,
+        statusCode: 400,
+        reason: "no_pending_email",
+      });
       return res.status(400).json({
         success: false,
         message: "Tidak ada permintaan ganti email yang aktif.",
@@ -244,15 +380,29 @@ const confirmEmailChange = async (req, res, next) => {
     }
 
     if (!isOTPValid(user) || user.otp_code !== otp) {
+      const ctx = buildRequestContext(req);
+      logEvent("profile_email_change", {
+        ...ctx,
+        success: false,
+        statusCode: 400,
+        reason: "otp_invalid",
+      });
       return res.status(400).json({
         success: false,
         message: "Kode OTP tidak valid atau sudah expired.",
       });
     }
 
-    // pastikan lagi email baru belum dipakai user lain
     const existing = await User.findOne({ email: user.pending_email });
     if (existing && existing._id.toString() !== user._id.toString()) {
+      const ctx = buildRequestContext(req);
+      logEvent("profile_email_change", {
+        ...ctx,
+        success: false,
+        statusCode: 400,
+        reason: "email_taken",
+        email: user.pending_email,
+      });
       return res.status(400).json({
         success: false,
         message: "Email baru sudah digunakan oleh akun lain.",
@@ -264,6 +414,14 @@ const confirmEmailChange = async (req, res, next) => {
     user.otp_code = null;
     user.otp_expires = null;
     await user.save();
+
+    const ctx = buildRequestContext(req);
+    logEvent("profile_email_change", {
+      ...ctx,
+      success: true,
+      statusCode: 200,
+      email: user.email,
+    });
 
     res.json({
       success: true,

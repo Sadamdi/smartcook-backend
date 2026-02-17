@@ -3,6 +3,7 @@ const User = require("../models/User");
 const { admin, initFirebase } = require("../config/firebase");
 const { generateOTP, isOTPValid, getOTPExpiry } = require("../utils/otp");
 const { sendOTPEmail } = require("../utils/email");
+const { logEvent } = require("../utils/logger");
 
 const generateToken = (userId) => {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
@@ -49,17 +50,44 @@ const register = async (req, res, next) => {
 const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+    const ip = req.headers["x-forwarded-for"] || req.ip;
+    const userAgent = req.headers["user-agent"] || "";
+    const ctx = {
+      ip,
+      userAgent,
+      email: email ? email.toLowerCase() : undefined,
+      provider: "email",
+    };
 
     if (!email || !password) {
+      logEvent("login_attempt", {
+        ...ctx,
+        success: false,
+        reason: "missing_credentials",
+        statusCode: 400,
+      });
       return res.status(400).json({ success: false, message: "Email dan password wajib diisi." });
     }
 
     const user = await User.findOne({ email: email.toLowerCase() }).select("+password");
     if (!user) {
+      logEvent("login_attempt", {
+        ...ctx,
+        success: false,
+        reason: "user_not_found",
+        statusCode: 401,
+      });
       return res.status(401).json({ success: false, message: "Email atau password salah." });
     }
 
     if (!user.password) {
+      logEvent("login_attempt", {
+        ...ctx,
+        userId: user._id.toString(),
+        success: false,
+        reason: "password_not_set_email_login",
+        statusCode: 401,
+      });
       return res.status(401).json({
         success: false,
         message: "Akun ini terdaftar melalui Google. Silakan login dengan metode tersebut.",
@@ -68,10 +96,25 @@ const login = async (req, res, next) => {
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
+      logEvent("login_attempt", {
+        ...ctx,
+        userId: user._id.toString(),
+        success: false,
+        reason: "password_mismatch",
+        statusCode: 401,
+      });
       return res.status(401).json({ success: false, message: "Email atau password salah." });
     }
 
     const token = generateToken(user._id);
+
+    logEvent("login_attempt", {
+      ...ctx,
+      userId: user._id.toString(),
+      success: true,
+      reason: "ok",
+      statusCode: 200,
+    });
 
     res.json({
       success: true,
@@ -86,15 +129,29 @@ const login = async (req, res, next) => {
 const googleAuth = async (req, res, next) => {
   try {
     const { email, name, uid, photo_url } = req.body;
+    const ip = req.headers["x-forwarded-for"] || req.ip;
+    const userAgent = req.headers["user-agent"] || "";
+    const base = {
+      ip,
+      userAgent,
+      provider: "google",
+      email: email ? email.toLowerCase() : undefined,
+      uid,
+    };
 
     if (!uid || !email) {
+      logEvent("google_login", {
+        ...base,
+        success: false,
+        reason: "missing_google_fields",
+        statusCode: 400,
+      });
       return res.status(400).json({
         success: false,
         message: "UID dan email dari akun Google wajib dikirim.",
       });
     }
 
-    // Ambil user beserta field password (kalau ada) untuk cek kebutuhan set-password.
     let user = await User.findOne({ email: email.toLowerCase() }).select(
       "+password",
     );
@@ -105,8 +162,6 @@ const googleAuth = async (req, res, next) => {
         name: name || "",
         auth_provider: "google",
         firebase_uid: uid,
-        // Jika nanti kamu tambahkan field avatar/photo di schema User,
-        // kamu bisa set dari photo_url di sini.
       });
     } else {
       let changed = false;
@@ -126,8 +181,15 @@ const googleAuth = async (req, res, next) => {
     const needsPassword = !user.password;
     const token = generateToken(user._id);
 
-    // pastikan password tidak ikut terkirim ke client
     const safeUser = user.toJSON();
+
+    logEvent("google_login", {
+      ...base,
+      userId: user._id.toString(),
+      success: true,
+      reason: "ok",
+      statusCode: 200,
+    });
 
     res.json({
       success: true,

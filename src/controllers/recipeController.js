@@ -3,6 +3,7 @@ const FridgeItem = require('../models/FridgeItem');
 const User = require('../models/User');
 const { getGeminiModel, retryWithAllKeys } = require('../config/gemini');
 const { searchBestImageUrl } = require('../services/imageSearchService');
+const { logEvent, buildRequestContext } = require('../utils/logger');
 
 const normalizeQuery = (q) =>
 	String(q || '')
@@ -235,8 +236,17 @@ const getRecipes = async (req, res, next) => {
 			Recipe.countDocuments(query),
 		]);
 
-		// Best-effort: isi sebagian gambar kalau masih kosong (dibatasi agar tidak boros API)
 		await ensureImagesForRecipes(recipes, { maxToFill: 2 });
+
+		const ctx = buildRequestContext(req);
+		logEvent('recipe_list', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			page: parseInt(page),
+			limit: parseInt(limit),
+			total,
+		});
 
 		res.json({
 			success: true,
@@ -256,12 +266,19 @@ const getRecipes = async (req, res, next) => {
 const getRecipeById = async (req, res, next) => {
 	try {
 		let recipe = await Recipe.findById(req.params.id);
+		const ctx = buildRequestContext(req);
 		if (!recipe) {
+			logEvent('recipe_get', {
+				...ctx,
+				success: false,
+				statusCode: 404,
+				reason: 'not_found',
+				recipeId: req.params.id,
+			});
 			return res
 				.status(404)
 				.json({ success: false, message: 'Resep tidak ditemukan.' });
 		}
-		// Auto-fill gambar jika masih kosong (best-effort, dengan limit & fallback dari imageSearchService)
 		if (!recipe.image_url) {
 			const imageUrl = await searchBestImageUrl(recipe.title);
 			if (imageUrl) {
@@ -269,6 +286,12 @@ const getRecipeById = async (req, res, next) => {
 				await recipe.save();
 			}
 		}
+		logEvent('recipe_get', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			recipeId: req.params.id,
+		});
 		res.json({ success: true, data: recipe });
 	} catch (error) {
 		next(error);
@@ -279,6 +302,13 @@ const searchRecipes = async (req, res, next) => {
 	try {
 		const { q, page = 1, limit = 10 } = req.query;
 		if (!q) {
+			const ctx = buildRequestContext(req);
+			logEvent('recipe_search', {
+				...ctx,
+				success: false,
+				statusCode: 400,
+				reason: 'missing_query',
+			});
 			return res
 				.status(400)
 				.json({ success: false, message: 'Query pencarian wajib diisi.' });
@@ -289,6 +319,17 @@ const searchRecipes = async (req, res, next) => {
 			.limit(parseInt(limit))
 			.sort({ score: { $meta: 'textScore' } });
 		const total = await Recipe.countDocuments({ $text: { $search: q } });
+
+		const ctx = buildRequestContext(req);
+		logEvent('recipe_search', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			q,
+			page: parseInt(page),
+			limit: parseInt(limit),
+			total,
+		});
 
 		res.json({
 			success: true,
@@ -308,7 +349,15 @@ const searchRecipes = async (req, res, next) => {
 const aiSearchRecipes = async (req, res, next) => {
 	try {
 		const { q } = req.query;
+		const start = Date.now();
 		if (!q || !String(q).trim()) {
+			const ctx = buildRequestContext(req);
+			logEvent('ai_search', {
+				...ctx,
+				success: false,
+				statusCode: 400,
+				reason: 'missing_query',
+			});
 			return res
 				.status(400)
 				.json({ success: false, message: 'Query pencarian wajib diisi.' });
@@ -317,7 +366,6 @@ const aiSearchRecipes = async (req, res, next) => {
 		const query = String(q).trim();
 		const norm = normalizeQuery(query);
 
-		// 1) Existing pool (AI) untuk query sama (global)
 		const existingAi = await Recipe.find({
 			source: 'ai',
 			origin_query_norm: norm,
@@ -325,7 +373,6 @@ const aiSearchRecipes = async (req, res, next) => {
 			.sort({ created_at: -1 })
 			.limit(10);
 
-		// 2) Seed matches via text search (opsional, agar user lihat resep curated juga)
 		const seedMatches = await Recipe.find({
 			source: { $ne: 'ai' },
 			$text: { $search: query },
@@ -333,7 +380,6 @@ const aiSearchRecipes = async (req, res, next) => {
 			.sort({ score: { $meta: 'textScore' } })
 			.limit(5);
 
-		// 3) Generate 1 resep AI baru setiap kali search
 		const prompt = buildRecipePrompt({ query, user: req.user });
 		const result = await retryWithAllKeys(async () => {
 			const model = getGeminiModel();
@@ -342,7 +388,6 @@ const aiSearchRecipes = async (req, res, next) => {
 		const rawText = result?.response?.text?.() ?? '';
 		const generatedJson = parseGeminiRecipeJson(rawText);
 
-		// cari gambar berdasarkan title (lebih akurat daripada query)
 		const imageUrl = await searchBestImageUrl(
 			generatedJson?.title || query,
 		);
@@ -355,15 +400,11 @@ const aiSearchRecipes = async (req, res, next) => {
 
 		const created = await Recipe.create(doc);
 
-		// Best-effort: isi gambar untuk hasil existing juga (dibatasi).
-		// Tidak masalah sedikit lebih lambat di endpoint ini karena dipakai khusus pencarian AI.
 		await ensureImagesForRecipes(existingAi, { maxToFill: 2 });
 		await ensureImagesForRecipes(seedMatches, { maxToFill: 2 });
 
-		// Gabungkan hasil: existing pool + seed + generated (generated terakhir biar “resep baru” terlihat)
 		let results = [...existingAi, ...seedMatches, created];
 
-		// Filter berdasarkan alergi user jika ada metadata not_suitable_for
 		const userAllergiesRaw = Array.isArray(req.user?.allergies)
 			? req.user.allergies
 			: [];
@@ -382,6 +423,20 @@ const aiSearchRecipes = async (req, res, next) => {
 				return !normalized.some((a) => allergySet.has(a));
 			});
 		}
+
+		const ctx = buildRequestContext(req);
+		const durationMs = Date.now() - start;
+		logEvent('ai_search', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			q: query,
+			resultsCount: results.length,
+			existingCount: existingAi.length,
+			seedCount: seedMatches.length,
+			generatedId: created?._id?.toString(),
+			durationMs,
+		});
 
 		res.json({
 			success: true,
@@ -402,7 +457,15 @@ const aiSearchRecipes = async (req, res, next) => {
 const queryRecipes = async (req, res, next) => {
 	try {
 		const { q } = req.query;
+		const start = Date.now();
 		if (!q || !String(q).trim()) {
+			const ctx = buildRequestContext(req);
+			logEvent('recipe_query', {
+				...ctx,
+				success: false,
+				statusCode: 400,
+				reason: 'missing_query',
+			});
 			return res
 				.status(400)
 				.json({ success: false, message: 'Query pencarian wajib diisi.' });
@@ -451,6 +514,19 @@ const queryRecipes = async (req, res, next) => {
 		await ensureImagesForRecipes(filteredExisting, { maxToFill: 3 });
 		await ensureImagesForRecipes(filteredSeed, { maxToFill: 3 });
 
+		const ctx = buildRequestContext(req);
+		const durationMs = Date.now() - start;
+		logEvent('recipe_query', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			q: query,
+			resultsCount: filteredExisting.length + filteredSeed.length,
+			existingCount: filteredExisting.length,
+			seedCount: filteredSeed.length,
+			durationMs,
+		});
+
 		res.json({
 			success: true,
 			data: {
@@ -481,13 +557,11 @@ const getRecommendations = async (req, res, next) => {
 				? { not_suitable_for: { $nin: userAllergies } }
 				: {};
 
-		// Prioritas: random dari resep yang pernah dicari (source: ai) dan aman untuk alergi user
 		let recipes = await Recipe.aggregate([
 			{ $match: { source: 'ai', ...matchSafeForUser } },
 			{ $sample: { size } },
 		]);
 
-		// Fallback 1: kalau belum cukup, ambil dari semua resep yang aman untuk alergi user
 		if (!recipes || recipes.length === 0) {
 			recipes = await Recipe.aggregate([
 				{ $match: matchSafeForUser },
@@ -495,12 +569,10 @@ const getRecommendations = async (req, res, next) => {
 			]);
 		}
 
-		// Fallback 2: jika masih kosong, ambil random dari semua resep (tanpa filter)
 		if (!recipes || recipes.length === 0) {
 			recipes = await Recipe.aggregate([{ $sample: { size } }]);
 		}
 
-		// Best-effort: isi sebagian gambar. Tidak perlu ditunggu untuk respon ke home.
 		ensureImagesForRecipes(recipes, {
 			maxToFill: Math.min(5, size),
 		}).catch((err) =>
@@ -508,6 +580,16 @@ const getRecommendations = async (req, res, next) => {
 				`[Recipe] ensureImagesForRecipes error di getRecommendations: ${err.message}`,
 			),
 		);
+
+		const ctx = buildRequestContext(req);
+		logEvent('recipe_recommendations', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			limit: size,
+			resultsCount: recipes.length,
+			hasAllergies: userAllergies.length > 0,
+		});
 
 		res.json({ success: true, data: recipes });
 	} catch (error) {
@@ -521,6 +603,14 @@ const getByMealType = async (req, res, next) => {
 		const { page = 1, limit = 10 } = req.query;
 		const validTypes = ['breakfast', 'lunch', 'dinner'];
 		if (!validTypes.includes(type)) {
+			const ctx = buildRequestContext(req);
+			logEvent('recipe_by_meal', {
+				...ctx,
+				success: false,
+				statusCode: 400,
+				reason: 'invalid_meal_type',
+				type,
+			});
 			return res.status(400).json({
 				success: false,
 				message: 'Tipe meal harus breakfast, lunch, atau dinner.',
@@ -535,12 +625,22 @@ const getByMealType = async (req, res, next) => {
 			Recipe.countDocuments({ meal_type: type }),
 		]);
 
-		// Best-effort: isi sebagian gambar per meal type. Tidak perlu ditunggu untuk respon ke home.
 		ensureImagesForRecipes(recipes, { maxToFill: 3 }).catch((err) =>
 			console.warn(
 				`[Recipe] ensureImagesForRecipes error di getByMealType: ${err.message}`,
 			),
 		);
+
+		const ctx = buildRequestContext(req);
+		logEvent('recipe_by_meal', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			type,
+			page: parseInt(page),
+			limit: parseInt(limit),
+			total,
+		});
 
 		res.json({
 			success: true,
