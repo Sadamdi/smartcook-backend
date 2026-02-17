@@ -1,6 +1,15 @@
 const ChatHistory = require('../models/ChatHistory');
 const FridgeItem = require('../models/FridgeItem');
-const { getGeminiModel, retryWithAllKeys } = require('../config/gemini');
+const {
+	getGeminiModel,
+	retryWithAllKeys,
+	getAllApiKeys,
+	getCurrentKeyIndex,
+	setKeyByIndex,
+	saveApiKeyState,
+	loadApiKeyState,
+	is429Error,
+} = require('../config/gemini');
 
 const buildUserContext = (user, fridgeItems) => {
 	const parts = [];
@@ -53,6 +62,7 @@ const sendMessage = async (req, res, next) => {
 			return await chat.sendMessage(fullMessage);
 		});
 
+		saveApiKeyState(getCurrentKeyIndex());
 		const reply = result.response.text();
 
 		const newUserMsg = {
@@ -141,22 +151,46 @@ const sendMessageStream = async (req, res, next) => {
 		const userContext = buildUserContext(req.user, fridgeItems);
 		const fullMessage = userContext ? `${message}\n${userContext}` : message;
 
-		const result = await retryWithAllKeys(async () => {
-			const model = getGeminiModel();
-			const chat = model.startChat({ history });
-			return await chat.sendMessageStream(fullMessage);
-		});
+		const keys = getAllApiKeys();
+		if (keys.length === 0) throw new Error('Tidak ada GOOGLE_API_KEY yang tersedia');
 
-		for await (const chunk of result.stream) {
-			const chunkText = chunk.text?.() ?? '';
-			if (chunkText) {
-				res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
-				if (typeof res.flush === 'function') res.flush();
+		let finalReply = '';
+		const startIndex = loadApiKeyState();
+		// Coba dari key yang terakhir berhasil, lalu sisanya
+		for (let i = 0; i < keys.length; i++) {
+			const keyIndex = (startIndex + i) % keys.length;
+			try {
+				setKeyByIndex(keyIndex);
+				const model = getGeminiModel();
+				const chat = model.startChat({ history });
+				const result = await chat.sendMessageStream(fullMessage);
+
+				for await (const chunk of result.stream) {
+					const chunkText = chunk.text?.() ?? '';
+					if (chunkText) {
+						res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+						if (typeof res.flush === 'function') res.flush();
+					}
+				}
+
+				const finalResponse = await result.response;
+				finalReply = finalResponse?.text?.() ?? '';
+				saveApiKeyState(keyIndex);
+				break;
+			} catch (error) {
+				console.error(
+					`Error dengan GOOGLE_API_KEY${keyIndex === 0 ? '' : keyIndex} (index ${keyIndex}):`,
+					error.message,
+				);
+				if (is429Error(error) && i < keys.length - 1) {
+					const next = (startIndex + i + 1) % keys.length;
+					console.log(`[429/limit] Mencoba key berikutnya: index ${next} (${i + 2}/${keys.length})...`);
+					continue;
+				}
+				throw error;
 			}
 		}
 
-		const finalResponse = await result.response;
-		const finalReply = finalResponse?.text?.() ?? '';
 		const newUserMsg = {
 			role: 'user',
 			content: message,
@@ -177,7 +211,7 @@ const sendMessageStream = async (req, res, next) => {
 			{ upsert: true },
 		);
 
-		res.write(`data: ${JSON.stringify({ done: true, fullReply: finalReply })}\n\n`);
+		res.write(`data: ${JSON.stringify({ done: true, fullReply })}\n\n`);
 		if (typeof res.flush === 'function') res.flush();
 		res.end();
 	} catch (error) {
