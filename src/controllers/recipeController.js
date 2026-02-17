@@ -742,9 +742,18 @@ const globalSearchRecipes = async (req, res, next) => {
 		}
 		const query = String(q).trim();
 		const offset = (parseInt(page) - 1) * parseInt(limit);
+		const userAllergiesRaw = Array.isArray(req.user?.allergies)
+			? req.user.allergies
+			: [];
+		const userAllergies = userAllergiesRaw
+			.map((a) => normalizeAllergyLabel(a))
+			.filter((a) => !!a);
 		const filter = {
 			$text: { $search: query },
 		};
+		if (userAllergies.length > 0) {
+			filter.not_suitable_for = { $nin: userAllergies };
+		}
 		const [recipes, total] = await Promise.all([
 			Recipe.find(filter)
 				.skip(offset)

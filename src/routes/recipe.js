@@ -16,7 +16,7 @@ const {
 
 router.get("/", getRecipes);
 router.get("/search", searchRecipes);
-router.get("/global-search", globalSearchRecipes);
+router.get("/global-search", protect, globalSearchRecipes);
 router.get("/query", protect, queryRecipes);
 router.get("/ai-search", protect, aiSearchRecipes);
 router.get("/recommendations", protect, getRecommendations);
