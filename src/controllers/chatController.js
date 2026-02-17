@@ -120,11 +120,16 @@ Konteks user (opsional):
 `;
 };
 
-const toRecipeDocShape = (generated, { imageUrl, originQuery, originQueryNorm, userId }) => {
+const toRecipeDocShape = (
+	generated,
+	{ imageUrl, originQuery, originQueryNorm, userId },
+) => {
 	const title = String(generated?.title || originQuery || 'Resep').trim();
 	const description = String(generated?.description || '').trim();
 	const category = String(generated?.category || '').trim();
-	const mealType = Array.isArray(generated?.meal_type) ? generated.meal_type : [];
+	const mealType = Array.isArray(generated?.meal_type)
+		? generated.meal_type
+		: [];
 	const tags = Array.isArray(generated?.tags) ? generated.tags : [];
 	const prepTime = Number.isFinite(Number(generated?.prep_time))
 		? Number(generated.prep_time)
@@ -138,10 +143,12 @@ const toRecipeDocShape = (generated, { imageUrl, originQuery, originQueryNorm, u
 
 	const nutrition =
 		generated?.nutrition_info && typeof generated.nutrition_info === 'object'
-		? generated.nutrition_info
-		: {};
+			? generated.nutrition_info
+			: {};
 
-	const ingredientsRaw = Array.isArray(generated?.ingredients) ? generated.ingredients : [];
+	const ingredientsRaw = Array.isArray(generated?.ingredients)
+		? generated.ingredients
+		: [];
 	const ingredients = ingredientsRaw
 		.map((it) => ({
 			name: String(it?.name || '').trim(),
@@ -166,14 +173,10 @@ const toRecipeDocShape = (generated, { imageUrl, originQuery, originQueryNorm, u
 		: [];
 
 	const suitableSet = new Set(
-		suitableRaw
-			.map((it) => normalizeAllergyLabel(it))
-			.filter((it) => !!it),
+		suitableRaw.map((it) => normalizeAllergyLabel(it)).filter((it) => !!it),
 	);
 	const notSuitableSet = new Set(
-		notSuitableRaw
-			.map((it) => normalizeAllergyLabel(it))
-			.filter((it) => !!it),
+		notSuitableRaw.map((it) => normalizeAllergyLabel(it)).filter((it) => !!it),
 	);
 
 	return {
@@ -230,7 +233,9 @@ const ensureImagesForRecipes = async (recipes, { maxToFill = 3 } = {}) => {
 };
 
 const detectRecipeSearchIntent = (message) => {
-	const msg = String(message || '').toLowerCase().trim();
+	const msg = String(message || '')
+		.toLowerCase()
+		.trim();
 	if (!msg) return { hasIntent: false, query: '' };
 
 	const recipeKeywords = [
@@ -268,7 +273,18 @@ const detectRecipeSearchIntent = (message) => {
 				const words = afterKeyword.split(/\s+/);
 				const filtered = words.filter(
 					(w) =>
-						!['yang', 'yang', 'untuk', 'dengan', 'tanpa', 'ini', 'itu', 'saya', 'aku', 'kamu'].includes(w),
+						![
+							'yang',
+							'yang',
+							'untuk',
+							'dengan',
+							'tanpa',
+							'ini',
+							'itu',
+							'saya',
+							'aku',
+							'kamu',
+						].includes(w),
 				);
 				query = filtered.join(' ').trim();
 			}
@@ -277,8 +293,7 @@ const detectRecipeSearchIntent = (message) => {
 				if (beforeKeyword) {
 					const words = beforeKeyword.split(/\s+/);
 					const filtered = words.filter(
-						(w) =>
-							!['carikan', 'cari', 'tolong', 'bisa', 'mohon'].includes(w),
+						(w) => !['carikan', 'cari', 'tolong', 'bisa', 'mohon'].includes(w),
 					);
 					query = filtered.join(' ').trim();
 				}
@@ -291,7 +306,23 @@ const detectRecipeSearchIntent = (message) => {
 		const words = msg.split(/\s+/);
 		const filtered = words.filter(
 			(w) =>
-				!['carikan', 'cari', 'resep', 'tolong', 'bisa', 'mohon', 'yang', 'untuk', 'dengan', 'tanpa', 'ini', 'itu', 'saya', 'aku', 'kamu'].includes(w),
+				![
+					'carikan',
+					'cari',
+					'resep',
+					'tolong',
+					'bisa',
+					'mohon',
+					'yang',
+					'untuk',
+					'dengan',
+					'tanpa',
+					'ini',
+					'itu',
+					'saya',
+					'aku',
+					'kamu',
+				].includes(w),
 		);
 		query = filtered.join(' ').trim();
 	}
@@ -321,8 +352,7 @@ const searchRecipesForBot = async (user, query) => {
 		const userAllergies = userAllergiesRaw
 			.map((a) => normalizeAllergyLabel(a))
 			.filter((a) => !!a);
-		const allergySet =
-			userAllergies.length > 0 ? new Set(userAllergies) : null;
+		const allergySet = userAllergies.length > 0 ? new Set(userAllergies) : null;
 
 		const filterByAllergy = (list) => {
 			if (!allergySet) return list;
@@ -367,9 +397,7 @@ const searchRecipesForBot = async (user, query) => {
 			const rawText = result?.response?.text?.() ?? '';
 			const generatedJson = parseGeminiRecipeJson(rawText);
 
-			const imageUrl = await searchBestImageUrl(
-				generatedJson?.title || query,
-			);
+			const imageUrl = await searchBestImageUrl(generatedJson?.title || query);
 			const doc = toRecipeDocShape(generatedJson, {
 				imageUrl,
 				originQuery: query,
@@ -427,7 +455,9 @@ const buildUserContext = async (user, fridgeItems) => {
 		if (userRecipes.length > 0) {
 			const userRecipeTitles = userRecipes.map((r) => r.title).filter(Boolean);
 			if (userRecipeTitles.length > 0) {
-				parts.push(`Resep yang pernah kamu buat: ${userRecipeTitles.join(', ')}`);
+				parts.push(
+					`Resep yang pernah kamu buat: ${userRecipeTitles.join(', ')}`,
+				);
 			}
 		}
 	} catch (error) {
@@ -601,7 +631,9 @@ const sendMessageStream = async (req, res, next) => {
 					prep_time: r.prep_time,
 					cook_time: r.cook_time,
 				}));
-				res.write(`data: ${JSON.stringify({ type: 'recipe_embed', recipes: recipesData })}\n\n`);
+				res.write(
+					`data: ${JSON.stringify({ type: 'recipe_embed', recipes: recipesData })}\n\n`,
+				);
 				if (typeof res.flush === 'function') res.flush();
 
 				const ctx = buildRequestContext(req);
@@ -611,7 +643,11 @@ const sendMessageStream = async (req, res, next) => {
 					statusCode: 200,
 					query: intentResult.query,
 					resultsCount: recipeResults.length,
-					generated: recipeResults.some((r) => r.source === 'ai' && r.created_by?.toString() === req.user._id.toString()),
+					generated: recipeResults.some(
+						(r) =>
+							r.source === 'ai' &&
+							r.created_by?.toString() === req.user._id.toString(),
+					),
 				});
 			}
 		}
@@ -620,7 +656,8 @@ const sendMessageStream = async (req, res, next) => {
 		const fullMessage = userContext ? `${message}\n${userContext}` : message;
 
 		const keys = getAllApiKeys();
-		if (keys.length === 0) throw new Error('Tidak ada GOOGLE_API_KEY yang tersedia');
+		if (keys.length === 0)
+			throw new Error('Tidak ada GOOGLE_API_KEY yang tersedia');
 
 		let finalReply = '';
 		const startIndex = loadApiKeyState();
@@ -651,7 +688,9 @@ const sendMessageStream = async (req, res, next) => {
 				);
 				if (is429Error(error) && i < keys.length - 1) {
 					const next = (startIndex + i + 1) % keys.length;
-					console.log(`[429/limit] Mencoba key berikutnya: index ${next} (${i + 2}/${keys.length})...`);
+					console.log(
+						`[429/limit] Mencoba key berikutnya: index ${next} (${i + 2}/${keys.length})...`,
+					);
 					continue;
 				}
 				throw error;
@@ -663,16 +702,17 @@ const sendMessageStream = async (req, res, next) => {
 			content: message,
 			timestamp: new Date(),
 		};
-		const recipesDataForSave = recipeResults.length > 0
-			? recipeResults.map((r) => ({
-				_id: r._id?.toString(),
-				title: r.title,
-				image_url: r.image_url,
-				nutrition_info: r.nutrition_info,
-				prep_time: r.prep_time,
-				cook_time: r.cook_time,
-			}))
-			: [];
+		const recipesDataForSave =
+			recipeResults.length > 0
+				? recipeResults.map((r) => ({
+						_id: r._id?.toString(),
+						title: r.title,
+						image_url: r.image_url,
+						nutrition_info: r.nutrition_info,
+						prep_time: r.prep_time,
+						cook_time: r.cook_time,
+					}))
+				: [];
 		const newModelMsg = {
 			role: 'model',
 			content: finalReply,

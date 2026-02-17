@@ -1,23 +1,35 @@
 # Dependencies
 node_modules/
+package-lock.json
+yarn.lock
 
 # Environment variables
 .env
+.env.local
+.env.*.local
+.env.production
+.env.development
 
 # Firebase Service Account (sensitive)
 serviceAccountKey.json
 smartcook-*.json
 *service-account*.json
 *firebase-adminsdk*.json
+firebase-adminsdk-*.json
 
 # Local state / data that may contain keys
 data/api-key-state.json
+data/
+*.state.json
 
 # Private keys / certificates
 *.pem
 *.p12
+*.key
+*.cert
+*.crt
 
-# Database files (SQLite)
+# Database files
 *.db
 *.sqlite
 *.sqlite3
@@ -27,8 +39,58 @@ data/api-key-state.json
 # Logs
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log.*
+
+# Build / Dist
+dist/
+build/
+*.tsbuildinfo
+
+# Coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Testing
+.jest/
+test-results/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
 
 # OS files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.cache
+
+# PM2
+.pm2/
+ecosystem.config.js
+
+# Misc
+*.pid
+*.seed
+*.pid.lock
