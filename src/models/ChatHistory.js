@@ -14,6 +14,22 @@ const messageSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  recipe_embeds: {
+    type: [{
+      _id: String,
+      title: String,
+      image_url: String,
+      nutrition_info: {
+        calories: Number,
+        protein: Number,
+        carbs: Number,
+        fat: Number,
+      },
+      prep_time: Number,
+      cook_time: Number,
+    }],
+    default: [],
+  },
 });
 
 const chatHistorySchema = new mongoose.Schema({

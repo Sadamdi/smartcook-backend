@@ -663,10 +663,21 @@ const sendMessageStream = async (req, res, next) => {
 			content: message,
 			timestamp: new Date(),
 		};
+		const recipesDataForSave = recipeResults.length > 0
+			? recipeResults.map((r) => ({
+				_id: r._id?.toString(),
+				title: r.title,
+				image_url: r.image_url,
+				nutrition_info: r.nutrition_info,
+				prep_time: r.prep_time,
+				cook_time: r.cook_time,
+			}))
+			: [];
 		const newModelMsg = {
 			role: 'model',
 			content: finalReply,
 			timestamp: new Date(),
+			recipe_embeds: recipesDataForSave,
 		};
 		const allMessages = chatDoc
 			? [...chatDoc.messages, newUserMsg, newModelMsg]
