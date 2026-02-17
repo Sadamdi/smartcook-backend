@@ -85,25 +85,19 @@ const login = async (req, res, next) => {
 
 const googleAuth = async (req, res, next) => {
   try {
-    const { id_token } = req.body;
+    const { email, name, uid, photo_url } = req.body;
 
-    if (!id_token) {
-      return res.status(400).json({ success: false, message: "ID token wajib dikirim." });
-    }
-
-    initFirebase();
-    const decodedToken = await admin.auth().verifyIdToken(id_token);
-    const { email, name, uid } = decodedToken;
-
-    if (!email) {
+    if (!uid || !email) {
       return res.status(400).json({
         success: false,
-        message: "Email dari akun Google tidak ditemukan.",
+        message: "UID dan email dari akun Google wajib dikirim.",
       });
     }
 
     // Ambil user beserta field password (kalau ada) untuk cek kebutuhan set-password.
-    let user = await User.findOne({ email: email.toLowerCase() }).select("+password");
+    let user = await User.findOne({ email: email.toLowerCase() }).select(
+      "+password",
+    );
 
     if (!user) {
       user = await User.create({
@@ -111,10 +105,20 @@ const googleAuth = async (req, res, next) => {
         name: name || "",
         auth_provider: "google",
         firebase_uid: uid,
+        // Jika nanti kamu tambahkan field avatar/photo di schema User,
+        // kamu bisa set dari photo_url di sini.
       });
     } else {
+      let changed = false;
       if (!user.firebase_uid) {
         user.firebase_uid = uid;
+        changed = true;
+      }
+      if (name && !user.name) {
+        user.name = name;
+        changed = true;
+      }
+      if (changed) {
         await user.save();
       }
     }
@@ -131,9 +135,6 @@ const googleAuth = async (req, res, next) => {
       data: { user: safeUser, token, needs_password: needsPassword },
     });
   } catch (error) {
-    if (error.code === "auth/id-token-expired") {
-      return res.status(401).json({ success: false, message: "Google token sudah expired." });
-    }
     next(error);
   }
 };

@@ -53,9 +53,7 @@ const scrapeImageUrlFromWeb = async (query) => {
 
 		// Cari pattern JSON yang berisi link gambar (rg_meta lama) ATAU langsung <img src="...">
 		// Pattern sangat sederhana: cari https dan ekstensi gambar umum.
-		const match = html.match(
-			/(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))/i,
-		);
+		const match = html.match(/(https?:\/\/[^"]+\.(?:jpg|jpeg|png|webp|gif))/i);
 		if (match && match[1]) {
 			const img = match[1];
 			console.log(`[ImageScraper] Found image url: ${img}`);
@@ -72,4 +70,3 @@ const scrapeImageUrlFromWeb = async (query) => {
 };
 
 module.exports = { scrapeImageUrlFromWeb };
-
