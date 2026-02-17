@@ -6,6 +6,12 @@ const ingredientSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
+  normalized_name: {
+    type: String,
+    index: true,
+    unique: true,
+    sparse: true,
+  },
   category: {
     type: String,
     required: true,

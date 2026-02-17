@@ -16,6 +16,7 @@ const fridgeRoutes = require('./src/routes/fridge');
 const favoriteRoutes = require('./src/routes/favorite');
 const chatRoutes = require('./src/routes/chat');
 const categoryRoutes = require('./src/routes/category');
+const ingredientRoutes = require('./src/routes/ingredient');
 
 const app = express();
 
@@ -53,6 +54,7 @@ app.use('/api/fridge', fridgeRoutes);
 app.use('/api/favorites', favoriteRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/categories', categoryRoutes);
+app.use('/api/ingredients', ingredientRoutes);
 
 app.get('/api/health', (req, res) => {
 	res.json({

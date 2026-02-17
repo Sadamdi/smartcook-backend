@@ -90,6 +90,30 @@ const parseGeminiRecipeJson = (rawText) => {
 	return parsed;
 };
 
+const incrementRecipePopularity = async (recipeId, ctx, reason) => {
+	try {
+		if (!recipeId) return;
+		await Recipe.findByIdAndUpdate(recipeId, {
+			$inc: { popularity_count: 1 },
+		});
+		logEvent('recipe_popularity_increment', {
+			...(ctx || {}),
+			success: true,
+			statusCode: 200,
+			recipeId: recipeId.toString(),
+			reason: reason || 'detail_open',
+		});
+	} catch (error) {
+		logEvent('recipe_popularity_increment', {
+			...(ctx || {}),
+			success: false,
+			statusCode: 500,
+			recipeId: recipeId ? recipeId.toString() : undefined,
+			reason: 'increment_failed',
+		});
+	}
+};
+
 const buildRecipePrompt = ({ query, user, fridgeNames }) => {
 	const allergies =
 		Array.isArray(user?.allergies) && user.allergies.length > 0
@@ -296,6 +320,7 @@ const getRecipeById = async (req, res, next) => {
 				await recipe.save();
 			}
 		}
+		incrementRecipePopularity(recipe._id, ctx, 'detail_open').catch(() => {});
 		logEvent('recipe_get', {
 			...ctx,
 			success: true,
@@ -331,6 +356,7 @@ const getRecipeWithFridge = async (req, res, next) => {
 				await recipe.save();
 			}
 		}
+		incrementRecipePopularity(recipe._id, ctx, 'detail_open').catch(() => {});
 		const fridgeItems = await FridgeItem.find({ user_id: req.user._id });
 		const fridgeNames = new Map();
 		for (const item of fridgeItems) {
@@ -678,6 +704,78 @@ const getRecommendations = async (req, res, next) => {
 	}
 };
 
+const getPopularRecipes = async (req, res, next) => {
+	try {
+		const { limit = 10 } = req.query;
+		const size = parseInt(limit);
+		const recipes = await Recipe.find({})
+			.sort({ popularity_count: -1, created_at: -1 })
+			.limit(size);
+		const ctx = buildRequestContext(req);
+		logEvent('recipe_popular_list', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			limit: size,
+			resultsCount: recipes.length,
+		});
+		res.json({ success: true, data: recipes });
+	} catch (error) {
+		next(error);
+	}
+};
+
+const globalSearchRecipes = async (req, res, next) => {
+	try {
+		const { q, page = 1, limit = 10 } = req.query;
+		const ctx = buildRequestContext(req);
+		if (!q || !String(q).trim()) {
+			logEvent('recipe_global_search', {
+				...ctx,
+				success: false,
+				statusCode: 400,
+				reason: 'missing_query',
+			});
+			return res
+				.status(400)
+				.json({ success: false, message: 'Query pencarian wajib diisi.' });
+		}
+		const query = String(q).trim();
+		const offset = (parseInt(page) - 1) * parseInt(limit);
+		const filter = {
+			$text: { $search: query },
+		};
+		const [recipes, total] = await Promise.all([
+			Recipe.find(filter)
+				.skip(offset)
+				.limit(parseInt(limit))
+				.sort({ score: { $meta: 'textScore' } }),
+			Recipe.countDocuments(filter),
+		]);
+		logEvent('recipe_global_search', {
+			...ctx,
+			success: true,
+			statusCode: 200,
+			q: query,
+			page: parseInt(page),
+			limit: parseInt(limit),
+			total,
+		});
+		res.json({
+			success: true,
+			data: recipes,
+			pagination: {
+				page: parseInt(page),
+				limit: parseInt(limit),
+				total,
+				pages: Math.ceil(total / parseInt(limit)),
+			},
+		});
+	} catch (error) {
+		next(error);
+	}
+};
+
 const getByMealType = async (req, res, next) => {
 	try {
 		const { type } = req.params;
@@ -746,5 +844,7 @@ module.exports = {
 	aiSearchRecipes,
 	queryRecipes,
 	getRecommendations,
+	getPopularRecipes,
+	globalSearchRecipes,
 	getByMealType,
 };

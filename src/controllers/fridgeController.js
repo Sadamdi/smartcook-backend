@@ -1,5 +1,6 @@
 const FridgeItem = require("../models/FridgeItem");
 const Recipe = require("../models/Recipe");
+const Ingredient = require("../models/Ingredient");
 const { logEvent, buildRequestContext } = require("../utils/logger");
 
 const classifyIngredientCategory = (name) => {
@@ -38,6 +39,43 @@ const classifyIngredientCategory = (name) => {
     return "sayur";
   }
   return "bumbu";
+};
+
+const syncIngredientCatalog = async (name, category, ctx) => {
+  try {
+    const normalized = String(name || "").toLowerCase().trim();
+    if (!normalized || !category) return;
+    const update = {
+      name: String(name || "").trim(),
+      normalized_name: normalized,
+      category,
+    };
+    const options = {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true,
+    };
+    const doc = await Ingredient.findOneAndUpdate(
+      { normalized_name: normalized },
+      update,
+      options,
+    );
+    logEvent("ingredient_sync_from_fridge", {
+      ...ctx,
+      success: true,
+      statusCode: 200,
+      ingredientId: doc._id.toString(),
+      name: doc.name,
+      category: doc.category,
+    });
+  } catch (error) {
+    logEvent("ingredient_sync_from_fridge", {
+      ...(ctx || {}),
+      success: false,
+      statusCode: 500,
+      reason: "sync_failed",
+    });
+  }
 };
 
 const getFridgeItems = async (req, res, next) => {
@@ -116,6 +154,7 @@ const addFridgeItem = async (req, res, next) => {
       unit: unit || "gram",
       expired_date: expired_date || null,
     });
+    await syncIngredientCatalog(ingredient_name, category, ctx);
     logEvent("fridge_add", {
       ...ctx,
       success: true,
@@ -289,6 +328,7 @@ const addMissingFromRecipe = async (req, res, next) => {
         unit: unitValue,
         expired_date: null,
       });
+      await syncIngredientCatalog(name, classifyIngredientCategory(name), ctx);
       existingMap.set(key, item);
       createdItems.push(item);
     }

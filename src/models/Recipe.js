@@ -91,6 +91,11 @@ const recipeSchema = new mongoose.Schema({
     type: [String],
     default: [],
   },
+  popularity_count: {
+    type: Number,
+    default: 0,
+    index: true,
+  },
   created_at: {
     type: Date,
     default: Date.now,
