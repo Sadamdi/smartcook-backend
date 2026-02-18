@@ -11,6 +11,91 @@ const generateToken = (userId) => {
   });
 };
 
+const getTodayDateOnly = () => {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+};
+
+const FIVE_MINUTES_MS = 5 * 60 * 1000;
+const MAX_ATTEMPTS_5_MIN = 5;
+const MAX_ATTEMPTS_DAILY = 10;
+
+const buildLoginLimitResponse = (res, { code, message, status = 400, extra = {} }) => {
+  return res.status(status).json({
+    success: false,
+    code,
+    message,
+    ...extra,
+  });
+};
+
+const checkAndUpdateLoginRateLimit = (user, { isFailedAttempt }) => {
+  const now = new Date();
+  const today = getTodayDateOnly();
+
+  // Reset daily counter jika hari berubah
+  if (!user.login_daily_date || user.login_daily_date.toDateString() !== today.toDateString()) {
+    user.login_daily_failed = 0;
+    user.login_daily_date = today;
+  }
+
+  // Cek lock sampai waktu tertentu (mis. 5 menit)
+  if (user.login_locked_until && user.login_locked_until > now) {
+    const msLeft = user.login_locked_until.getTime() - now.getTime();
+    const secondsLeft = Math.ceil(msLeft / 1000);
+    return {
+      limited: true,
+      reason: "window_lock",
+      secondsLeft,
+    };
+  }
+
+  if (!isFailedAttempt) {
+    // Jika bukan attempt gagal, cukup kembalikan info bahwa tidak limited
+    return { limited: false };
+  }
+
+  // Inisialisasi window 5 menit pertama jika belum ada atau sudah lewat
+  if (!user.login_first_failed_at || now - user.login_first_failed_at > FIVE_MINUTES_MS) {
+    user.login_first_failed_at = now;
+    user.login_failed_attempts = 0;
+  }
+
+  user.login_failed_attempts = (user.login_failed_attempts || 0) + 1;
+  user.login_daily_failed = (user.login_daily_failed || 0) + 1;
+
+  // Hitung apakah melewati limit 5x/5 menit
+  if (user.login_failed_attempts >= MAX_ATTEMPTS_5_MIN && now - user.login_first_failed_at <= FIVE_MINUTES_MS) {
+    user.login_locked_until = new Date(now.getTime() + FIVE_MINUTES_MS);
+    const msLeft = user.login_locked_until.getTime() - now.getTime();
+    const secondsLeft = Math.ceil(msLeft / 1000);
+    return {
+      limited: true,
+      reason: "5min_limit",
+      secondsLeft,
+    };
+  }
+
+  // Cek limit harian 10x
+  if (user.login_daily_failed >= MAX_ATTEMPTS_DAILY) {
+    return {
+      limited: true,
+      reason: "daily_limit",
+    };
+  }
+
+  return { limited: false };
+};
+
+const resetLoginRateLimitCounters = (user) => {
+  const today = getTodayDateOnly();
+  user.login_failed_attempts = 0;
+  user.login_first_failed_at = null;
+  user.login_daily_failed = 0;
+  user.login_daily_date = today;
+  user.login_locked_until = null;
+};
+
 const register = async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
@@ -66,7 +151,13 @@ const login = async (req, res, next) => {
         reason: "missing_credentials",
         statusCode: 400,
       });
-      return res.status(400).json({ success: false, message: "Email dan password wajib diisi." });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          code: "MISSING_CREDENTIALS",
+          message: "Email dan password wajib diisi.",
+        });
     }
 
     const user = await User.findOne({ email: email.toLowerCase() }).select("+password");
@@ -75,9 +166,48 @@ const login = async (req, res, next) => {
         ...ctx,
         success: false,
         reason: "user_not_found",
-        statusCode: 401,
+        statusCode: 400,
       });
-      return res.status(401).json({ success: false, message: "Email atau password salah." });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          code: "INVALID_CREDENTIALS",
+          message: "Email atau password salah.",
+        });
+    }
+
+    // Cek OTP required karena limit harian
+    const now = new Date();
+    const today = getTodayDateOnly();
+    if (
+      user.login_daily_date &&
+      user.login_daily_date.toDateString() === today.toDateString() &&
+      (user.login_daily_failed || 0) >= MAX_ATTEMPTS_DAILY
+    ) {
+      // Jika belum ada OTP aktif atau sudah expired, generate baru
+      if (!isOTPValid(user)) {
+        const otp = generateOTP();
+        user.otp_code = otp;
+        user.otp_expires = getOTPExpiry();
+        await user.save();
+        await sendOTPEmail(user.email, user.otp_code);
+      }
+
+      logEvent("login_attempt", {
+        ...ctx,
+        userId: user._id.toString(),
+        success: false,
+        reason: "daily_limit_otp_required",
+        statusCode: 423,
+      });
+
+      return buildLoginLimitResponse(res, {
+        status: 423,
+        code: "LOGIN_OTP_REQUIRED",
+        message:
+          "Terlalu banyak percobaan login gagal hari ini. Kami telah mengirimkan kode OTP ke email kamu.",
+      });
     }
 
     if (!user.password) {
@@ -86,25 +216,104 @@ const login = async (req, res, next) => {
         userId: user._id.toString(),
         success: false,
         reason: "password_not_set_email_login",
-        statusCode: 401,
+        statusCode: 400,
       });
-      return res.status(401).json({
+      return res.status(400).json({
         success: false,
+        code: "PASSWORD_NOT_SET",
         message: "Akun ini terdaftar melalui Google. Silakan login dengan metode tersebut.",
+      });
+    }
+
+    // Cek lock window 5 menit sebelum verifikasi password
+    const windowCheck = checkAndUpdateLoginRateLimit(user, { isFailedAttempt: false });
+    if (windowCheck.limited && (windowCheck.reason === "window_lock" || windowCheck.reason === "5min_limit")) {
+      const secondsLeft = windowCheck.secondsLeft || 300;
+      logEvent("login_attempt", {
+        ...ctx,
+        userId: user._id.toString(),
+        success: false,
+        reason: "5min_window_locked",
+        statusCode: 429,
+      });
+      return buildLoginLimitResponse(res, {
+        status: 429,
+        code: "LOGIN_RATE_LIMIT",
+        message: `Terlalu banyak percobaan login. Coba lagi dalam ${Math.ceil(
+          secondsLeft / 60,
+        )} menit.`,
+        extra: { retry_after_seconds: secondsLeft },
       });
     }
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
+      const limitInfo = checkAndUpdateLoginRateLimit(user, { isFailedAttempt: true });
+      await user.save({ validateBeforeSave: false });
+
+      if (limitInfo.limited) {
+        if (limitInfo.reason === "5min_limit" || limitInfo.reason === "window_lock") {
+          const secondsLeft = limitInfo.secondsLeft || 300;
+          logEvent("login_attempt", {
+            ...ctx,
+            userId: user._id.toString(),
+            success: false,
+            reason: "password_mismatch_rate_limited",
+            statusCode: 429,
+          });
+          return buildLoginLimitResponse(res, {
+            status: 429,
+            code: "LOGIN_RATE_LIMIT",
+            message: `Terlalu banyak percobaan login. Coba lagi dalam ${Math.ceil(
+              secondsLeft / 60,
+            )} menit.`,
+            extra: { retry_after_seconds: secondsLeft },
+          });
+        }
+
+        if (limitInfo.reason === "daily_limit") {
+          // Pastikan ada OTP yang masih valid, jika tidak buat baru
+          if (!isOTPValid(user)) {
+            const otp = generateOTP();
+            user.otp_code = otp;
+            user.otp_expires = getOTPExpiry();
+            await user.save();
+            await sendOTPEmail(user.email, user.otp_code);
+          }
+
+          logEvent("login_attempt", {
+            ...ctx,
+            userId: user._id.toString(),
+            success: false,
+            reason: "password_mismatch_daily_limit_otp_required",
+            statusCode: 423,
+          });
+
+          return buildLoginLimitResponse(res, {
+            status: 423,
+            code: "LOGIN_OTP_REQUIRED",
+            message:
+              "Terlalu banyak percobaan login gagal hari ini. Kami telah mengirimkan kode OTP ke email kamu.",
+          });
+        }
+      }
+
       logEvent("login_attempt", {
         ...ctx,
         userId: user._id.toString(),
         success: false,
         reason: "password_mismatch",
-        statusCode: 401,
+        statusCode: 400,
       });
-      return res.status(401).json({ success: false, message: "Email atau password salah." });
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_CREDENTIALS",
+        message: "Email atau password salah.",
+      });
     }
+
+    resetLoginRateLimitCounters(user);
+    await user.save({ validateBeforeSave: false });
 
     const token = generateToken(user._id);
 
@@ -366,6 +575,73 @@ const resetPassword = async (req, res, next) => {
   }
 };
 
+const loginOTPVerify = async (req, res, next) => {
+  try {
+    const { email, otp, new_password } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        code: "MISSING_FIELDS",
+        message: "Email dan OTP wajib diisi.",
+      });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() }).select("+password");
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        code: "USER_NOT_FOUND",
+        message: "Email tidak ditemukan.",
+      });
+    }
+
+    if (!isOTPValid(user) || user.otp_code !== otp) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_OTP",
+        message: "Kode OTP tidak valid atau sudah expired.",
+      });
+    }
+
+    // Jika user mengirim password baru, langsung ganti password
+    if (new_password) {
+      if (typeof new_password !== "string" || new_password.length < 6) {
+        return res.status(400).json({
+          success: false,
+          code: "INVALID_NEW_PASSWORD",
+          message: "Password baru minimal 6 karakter.",
+        });
+      }
+      user.password = new_password;
+    }
+
+    // Bersihkan OTP dan reset counter login gagal
+    user.otp_code = null;
+    user.otp_expires = null;
+    resetLoginRateLimitCounters(user);
+
+    await user.save();
+
+    const token = generateToken(user._id);
+    const safeUser = user.toJSON();
+
+    res.json({
+      success: true,
+      message: new_password
+        ? "OTP terverifikasi dan password berhasil diganti."
+        : "OTP terverifikasi. Silakan ganti password sekarang.",
+      data: {
+        user: safeUser,
+        token,
+        must_change_password: !new_password,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -374,4 +650,5 @@ module.exports = {
   verifyOTP,
   resetPassword,
   setGooglePassword,
+  loginOTPVerify,
 };

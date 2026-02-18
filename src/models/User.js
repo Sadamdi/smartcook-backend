@@ -62,6 +62,27 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null,
   },
+  // Counter untuk percobaan login gagal & rate limiting
+  login_failed_attempts: {
+    type: Number,
+    default: 0,
+  },
+  login_first_failed_at: {
+    type: Date,
+    default: null,
+  },
+  login_daily_failed: {
+    type: Number,
+    default: 0,
+  },
+  login_daily_date: {
+    type: Date,
+    default: null,
+  },
+  login_locked_until: {
+    type: Date,
+    default: null,
+  },
   otp_code: {
     type: String,
     default: null,
