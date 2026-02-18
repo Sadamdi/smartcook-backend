@@ -899,6 +899,80 @@ const loginOTPVerify = async (req, res, next) => {
   }
 };
 
+const loginOTPResend = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        code: "MISSING_EMAIL",
+        message: "Email wajib diisi.",
+      });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        code: "USER_NOT_FOUND",
+        message: "Email tidak ditemukan.",
+      });
+    }
+
+    const ctx = buildRequestContext(req);
+
+    const rate = checkOtpSendRateLimit(user);
+    if (rate.limited && isOTPValid(user)) {
+      const retryAfter = rate.secondsLeft || 60;
+      logEvent("login_otp_resend", {
+        ...ctx,
+        email: user.email,
+        userId: user._id.toString(),
+        success: false,
+        statusCode: 429,
+        reason: "otp_send_rate_limited",
+        retryAfterSeconds: retryAfter,
+      });
+      return res.status(429).json({
+        success: false,
+        code: "OTP_SEND_RATE_LIMIT",
+        message: `Terlalu sering meminta OTP. Coba lagi dalam ${retryAfter} detik.`,
+        retry_after_seconds: retryAfter,
+        expires_in_seconds: getOtpExpirySeconds(user),
+      });
+    }
+
+    const otp = generateOTP();
+    user.otp_code = otp;
+    markOtpSent(user);
+    await user.save();
+
+    await sendOTPEmail(user.email, otp);
+
+    const expiresIn = getOtpExpirySeconds(user);
+
+    logEvent("login_otp_resend", {
+      ...ctx,
+      email: user.email,
+      userId: user._id.toString(),
+      success: true,
+      statusCode: 200,
+      expiresInSeconds: expiresIn,
+    });
+
+    res.json({
+      success: true,
+      message: "Kode OTP baru telah dikirim ke email kamu.",
+      data: {
+        expires_in_seconds: expiresIn,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -908,4 +982,5 @@ module.exports = {
   resetPassword,
   setGooglePassword,
   loginOTPVerify,
+  loginOTPResend,
 };

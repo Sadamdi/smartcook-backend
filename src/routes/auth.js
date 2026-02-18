@@ -9,6 +9,7 @@ const {
 	resetPassword,
 	setGooglePassword,
 	loginOTPVerify,
+	loginOTPResend,
 } = require('../controllers/authController');
 const { protect } = require('../middleware/auth');
 
@@ -20,5 +21,6 @@ router.post('/forgot-password', forgotPassword);
 router.post('/verify-otp', verifyOTP);
 router.post('/reset-password', resetPassword);
 router.post('/login-otp-verify', loginOTPVerify);
+router.post('/login-otp-resend', loginOTPResend);
 
 module.exports = router;
