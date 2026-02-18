@@ -120,9 +120,29 @@ const sendPasswordChangeOTP = async (req, res, next) => {
         .json({ success: false, message: "User tidak ditemukan." });
     }
 
+    const rate = checkOtpSendRateLimit(user);
+    if (rate.limited) {
+      const retryAfter = rate.secondsLeft || 60;
+      const ctx = buildRequestContext(req);
+      logEvent("profile_password_otp_send", {
+        ...ctx,
+        success: false,
+        statusCode: 429,
+        reason: "otp_send_rate_limited",
+        retryAfterSeconds: retryAfter,
+      });
+      return res.status(429).json({
+        success: false,
+        code: "OTP_SEND_RATE_LIMIT",
+        message: `Terlalu sering meminta OTP. Coba lagi dalam ${retryAfter} detik.`,
+        retry_after_seconds: retryAfter,
+        expires_in_seconds: getOtpExpirySeconds(user),
+      });
+    }
+
     const otp = generateOTP();
     user.otp_code = otp;
-    user.otp_expires = getOTPExpiry();
+    markOtpSent(user);
     await user.save();
 
     await sendOTPEmail(user.email, otp);
@@ -135,9 +155,14 @@ const sendPasswordChangeOTP = async (req, res, next) => {
       email: user.email,
     });
 
+    const expiresIn = getOtpExpirySeconds(user);
+
     res.json({
       success: true,
       message: "Kode OTP untuk ganti password telah dikirim ke email kamu.",
+      data: {
+        expires_in_seconds: expiresIn,
+      },
     });
   } catch (error) {
     next(error);
@@ -308,10 +333,30 @@ const sendEmailChangeOTP = async (req, res, next) => {
         .json({ success: false, message: "User tidak ditemukan." });
     }
 
+    const rate = checkOtpSendRateLimit(user);
+    if (rate.limited) {
+      const retryAfter = rate.secondsLeft || 60;
+      const ctx = buildRequestContext(req);
+      logEvent("profile_email_otp_send", {
+        ...ctx,
+        success: false,
+        statusCode: 429,
+        reason: "otp_send_rate_limited",
+        retryAfterSeconds: retryAfter,
+      });
+      return res.status(429).json({
+        success: false,
+        code: "OTP_SEND_RATE_LIMIT",
+        message: `Terlalu sering meminta OTP. Coba lagi dalam ${retryAfter} detik.`,
+        retry_after_seconds: retryAfter,
+        expires_in_seconds: getOtpExpirySeconds(user),
+      });
+    }
+
     const otp = generateOTP();
     user.pending_email = normalized;
     user.otp_code = otp;
-    user.otp_expires = getOTPExpiry();
+    markOtpSent(user);
     await user.save();
 
     await sendOTPEmail(user.email, otp);
@@ -324,10 +369,15 @@ const sendEmailChangeOTP = async (req, res, next) => {
       email: normalized,
     });
 
+    const expiresIn = getOtpExpirySeconds(user);
+
     res.json({
       success: true,
       message:
         "Kode OTP untuk ganti email telah dikirim ke email kamu. Masukkan kode tersebut untuk konfirmasi.",
+      data: {
+        expires_in_seconds: expiresIn,
+      },
     });
   } catch (error) {
     next(error);

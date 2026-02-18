@@ -91,6 +91,10 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+  otp_last_sent_at: {
+    type: Date,
+    default: null,
+  },
   created_at: {
     type: Date,
     default: Date.now,

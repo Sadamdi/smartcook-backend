@@ -3,7 +3,7 @@ const User = require("../models/User");
 const { admin, initFirebase } = require("../config/firebase");
 const { generateOTP, isOTPValid, getOTPExpiry } = require("../utils/otp");
 const { sendOTPEmail } = require("../utils/email");
-const { logEvent } = require("../utils/logger");
+const { logEvent, buildRequestContext } = require("../utils/logger");
 
 const generateToken = (userId) => {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
@@ -19,6 +19,7 @@ const getTodayDateOnly = () => {
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS_5_MIN = 5;
 const MAX_ATTEMPTS_DAILY = 10;
+const ONE_MINUTE_MS = 60 * 1000;
 
 // Rate limit tambahan berbasis IP untuk kasus email yang tidak ditemukan,
 // supaya tetap ikut aturan 5x/5 menit dan 10x/hari.
@@ -98,6 +99,32 @@ const resetLoginRateLimitCounters = (user) => {
   user.login_daily_failed = 0;
   user.login_daily_date = today;
   user.login_locked_until = null;
+};
+
+const getOtpExpirySeconds = (user) => {
+  if (!user.otp_expires) return null;
+  const now = Date.now();
+  const diff = user.otp_expires.getTime() - now;
+  if (diff <= 0) return 0;
+  return Math.ceil(diff / 1000);
+};
+
+const checkOtpSendRateLimit = (user) => {
+  const now = Date.now();
+  if (!user.otp_last_sent_at) return { limited: false };
+  const last = user.otp_last_sent_at.getTime();
+  const diff = now - last;
+  if (diff < ONE_MINUTE_MS) {
+    const msLeft = ONE_MINUTE_MS - diff;
+    const secondsLeft = Math.ceil(msLeft / 1000);
+    return { limited: true, secondsLeft };
+  }
+  return { limited: false };
+};
+
+const markOtpSent = (user) => {
+  user.otp_last_sent_at = new Date();
+  user.otp_expires = getOTPExpiry();
 };
 
 const checkAndUpdateIpRateLimitForUnknownEmail = (ip, { isFailedAttempt }) => {
@@ -297,10 +324,29 @@ const login = async (req, res, next) => {
       (user.login_daily_failed || 0) >= MAX_ATTEMPTS_DAILY
     ) {
       // Jika belum ada OTP aktif atau sudah expired, generate baru
+      const rate = checkOtpSendRateLimit(user);
+      if (rate.limited && isOTPValid(user)) {
+        const retryAfter = rate.secondsLeft || 60;
+        logEvent("login_otp_send", {
+          ...ctx,
+          userId: user._id.toString(),
+          success: false,
+          reason: "otp_send_rate_limited",
+          statusCode: 429,
+        });
+        return res.status(429).json({
+          success: false,
+          code: "OTP_SEND_RATE_LIMIT",
+          message: `Terlalu sering meminta OTP. Coba lagi dalam ${retryAfter} detik.`,
+          retry_after_seconds: retryAfter,
+          expires_in_seconds: getOtpExpirySeconds(user),
+        });
+      }
+
       if (!isOTPValid(user)) {
         const otp = generateOTP();
         user.otp_code = otp;
-        user.otp_expires = getOTPExpiry();
+        markOtpSent(user);
         await user.save();
         await sendOTPEmail(user.email, user.otp_code);
       }
@@ -318,6 +364,9 @@ const login = async (req, res, next) => {
         code: "LOGIN_OTP_REQUIRED",
         message:
           "Terlalu banyak percobaan login gagal hari ini. Kami telah mengirimkan kode OTP ke email kamu.",
+        extra: {
+          expires_in_seconds: getOtpExpirySeconds(user),
+        },
       });
     }
 
@@ -383,11 +432,30 @@ const login = async (req, res, next) => {
         }
 
         if (limitInfo.reason === "daily_limit") {
+          const rate = checkOtpSendRateLimit(user);
+          if (rate.limited && isOTPValid(user)) {
+            const retryAfter = rate.secondsLeft || 60;
+            logEvent("login_otp_send", {
+              ...ctx,
+              userId: user._id.toString(),
+              success: false,
+              reason: "otp_send_rate_limited",
+              statusCode: 429,
+            });
+            return res.status(429).json({
+              success: false,
+              code: "OTP_SEND_RATE_LIMIT",
+              message: `Terlalu sering meminta OTP. Coba lagi dalam ${retryAfter} detik.`,
+              retry_after_seconds: retryAfter,
+              expires_in_seconds: getOtpExpirySeconds(user),
+            });
+          }
+
           // Pastikan ada OTP yang masih valid, jika tidak buat baru
           if (!isOTPValid(user)) {
             const otp = generateOTP();
             user.otp_code = otp;
-            user.otp_expires = getOTPExpiry();
+            markOtpSent(user);
             await user.save();
             await sendOTPEmail(user.email, user.otp_code);
           }
@@ -405,6 +473,9 @@ const login = async (req, res, next) => {
             code: "LOGIN_OTP_REQUIRED",
             message:
               "Terlalu banyak percobaan login gagal hari ini. Kami telah mengirimkan kode OTP ke email kamu.",
+            extra: {
+              expires_in_seconds: getOtpExpirySeconds(user),
+            },
           });
         }
       }
@@ -605,16 +676,33 @@ const forgotPassword = async (req, res, next) => {
       });
     }
 
+    const rate = checkOtpSendRateLimit(user);
+    if (rate.limited) {
+      const retryAfter = rate.secondsLeft || 60;
+      return res.status(429).json({
+        success: false,
+        code: "OTP_SEND_RATE_LIMIT",
+        message: `Terlalu sering meminta OTP. Coba lagi dalam ${retryAfter} detik.`,
+        retry_after_seconds: retryAfter,
+        expires_in_seconds: getOtpExpirySeconds(user),
+      });
+    }
+
     const otp = generateOTP();
     user.otp_code = otp;
-    user.otp_expires = getOTPExpiry();
+    markOtpSent(user);
     await user.save();
 
     await sendOTPEmail(email, otp);
 
+    const expiresIn = getOtpExpirySeconds(user);
+
     res.json({
       success: true,
       message: "Kode OTP telah dikirim ke email kamu.",
+      data: {
+        expires_in_seconds: expiresIn,
+      },
     });
   } catch (error) {
     next(error);
@@ -634,13 +722,36 @@ const verifyOTP = async (req, res, next) => {
       return res.status(404).json({ success: false, message: "Email tidak ditemukan." });
     }
 
+    const ctx = buildRequestContext(req);
+
     if (!isOTPValid(user)) {
+      logEvent("otp_verify", {
+        ...ctx,
+        email: user.email,
+        success: false,
+        statusCode: 400,
+        reason: "expired",
+      });
       return res.status(400).json({ success: false, message: "Kode OTP sudah expired. Silakan minta ulang." });
     }
 
     if (user.otp_code !== otp) {
+      logEvent("otp_verify", {
+        ...ctx,
+        email: user.email,
+        success: false,
+        statusCode: 400,
+        reason: "mismatch",
+      });
       return res.status(400).json({ success: false, message: "Kode OTP salah." });
     }
+
+    logEvent("otp_verify", {
+      ...ctx,
+      email: user.email,
+      success: true,
+      statusCode: 200,
+    });
 
     res.json({
       success: true,
@@ -668,7 +779,16 @@ const resetPassword = async (req, res, next) => {
       return res.status(404).json({ success: false, message: "Email tidak ditemukan." });
     }
 
+    const ctx = buildRequestContext(req);
+
     if (!isOTPValid(user) || user.otp_code !== otp) {
+      logEvent("password_reset", {
+        ...ctx,
+        email: user.email,
+        success: false,
+        statusCode: 400,
+        reason: "otp_invalid",
+      });
       return res.status(400).json({ success: false, message: "Kode OTP tidak valid atau sudah expired." });
     }
 
@@ -676,6 +796,13 @@ const resetPassword = async (req, res, next) => {
     user.otp_code = null;
     user.otp_expires = null;
     await user.save();
+
+    logEvent("password_reset", {
+      ...ctx,
+      email: user.email,
+      success: true,
+      statusCode: 200,
+    });
 
     res.json({
       success: true,
@@ -707,7 +834,17 @@ const loginOTPVerify = async (req, res, next) => {
       });
     }
 
+    const ctx = buildRequestContext(req);
+
     if (!isOTPValid(user) || user.otp_code !== otp) {
+      logEvent("login_otp_verify", {
+        ...ctx,
+        email: user.email,
+        userId: user._id.toString(),
+        success: false,
+        statusCode: 400,
+        reason: "otp_invalid",
+      });
       return res.status(400).json({
         success: false,
         code: "INVALID_OTP",
@@ -736,6 +873,15 @@ const loginOTPVerify = async (req, res, next) => {
 
     const token = generateToken(user._id);
     const safeUser = user.toJSON();
+
+    logEvent("login_otp_verify", {
+      ...ctx,
+      email: user.email,
+      userId: user._id.toString(),
+      success: true,
+      statusCode: 200,
+      withPasswordChange: Boolean(new_password),
+    });
 
     res.json({
       success: true,
