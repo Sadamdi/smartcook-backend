@@ -109,7 +109,7 @@ const getAllApiKeys = () => {
 const initGeminiWithKey = (apiKey) => {
 	genAI = new GoogleGenerativeAI(apiKey);
 	model = genAI.getGenerativeModel({
-		model: 'gemini-2.5-flash',
+		model: 'gemini-2.5-flash-lite',
 		systemInstruction: SYSTEM_PROMPT,
 	});
 	return model;
