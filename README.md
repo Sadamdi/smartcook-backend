@@ -2,7 +2,7 @@
 
 Backend server untuk aplikasi SmartCook - asisten memasak pintar berbasis AI yang membantu pengguna menemukan resep berdasarkan bahan yang tersedia, preferensi kesehatan, dan interaksi dengan AI chatbot.
 
-Dibangun dengan Node.js, Express 5, MongoDB, dan Google Gemini AI.
+Dibangun dengan Node.js, Express 5, MongoDB, dan SmartChef AI.
 
 ## 📋 Tentang Backend
 

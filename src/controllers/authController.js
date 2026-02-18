@@ -20,6 +20,10 @@ const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS_5_MIN = 5;
 const MAX_ATTEMPTS_DAILY = 10;
 
+// Rate limit tambahan berbasis IP untuk kasus email yang tidak ditemukan,
+// supaya tetap ikut aturan 5x/5 menit dan 10x/hari.
+const ipLoginState = new Map(); // key: ip, value: { failedAttempts, firstFailedAt, dailyFailed, dailyDate, lockedUntil }
+
 const buildLoginLimitResponse = (res, { code, message, status = 400, extra = {} }) => {
   return res.status(status).json({
     success: false,
@@ -96,6 +100,77 @@ const resetLoginRateLimitCounters = (user) => {
   user.login_locked_until = null;
 };
 
+const checkAndUpdateIpRateLimitForUnknownEmail = (ip, { isFailedAttempt }) => {
+  const now = new Date();
+  const today = getTodayDateOnly();
+
+  let state = ipLoginState.get(ip);
+  if (!state) {
+    state = {
+      failedAttempts: 0,
+      firstFailedAt: null,
+      dailyFailed: 0,
+      dailyDate: today,
+      lockedUntil: null,
+    };
+  }
+
+  // Reset daily counter jika hari berubah
+  if (!state.dailyDate || state.dailyDate.toDateString() !== today.toDateString()) {
+    state.dailyFailed = 0;
+    state.dailyDate = today;
+  }
+
+  // Cek lock window 5 menit
+  if (state.lockedUntil && state.lockedUntil > now) {
+    const msLeft = state.lockedUntil.getTime() - now.getTime();
+    const secondsLeft = Math.ceil(msLeft / 1000);
+    ipLoginState.set(ip, state);
+    return {
+      limited: true,
+      reason: "window_lock",
+      secondsLeft,
+    };
+  }
+
+  if (!isFailedAttempt) {
+    ipLoginState.set(ip, state);
+    return { limited: false };
+  }
+
+  // Inisialisasi/refresh window 5 menit
+  if (!state.firstFailedAt || now - state.firstFailedAt > FIVE_MINUTES_MS) {
+    state.firstFailedAt = now;
+    state.failedAttempts = 0;
+  }
+
+  state.failedAttempts = (state.failedAttempts || 0) + 1;
+  state.dailyFailed = (state.dailyFailed || 0) + 1;
+
+  if (state.failedAttempts >= MAX_ATTEMPTS_5_MIN && now - state.firstFailedAt <= FIVE_MINUTES_MS) {
+    state.lockedUntil = new Date(now.getTime() + FIVE_MINUTES_MS);
+    const msLeft = state.lockedUntil.getTime() - now.getTime();
+    const secondsLeft = Math.ceil(msLeft / 1000);
+    ipLoginState.set(ip, state);
+    return {
+      limited: true,
+      reason: "5min_limit",
+      secondsLeft,
+    };
+  }
+
+  if (state.dailyFailed >= MAX_ATTEMPTS_DAILY) {
+    ipLoginState.set(ip, state);
+    return {
+      limited: true,
+      reason: "daily_limit",
+    };
+  }
+
+  ipLoginState.set(ip, state);
+  return { limited: false };
+};
+
 const register = async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
@@ -162,19 +237,55 @@ const login = async (req, res, next) => {
 
     const user = await User.findOne({ email: email.toLowerCase() }).select("+password");
     if (!user) {
+      // Untuk email yang tidak ditemukan, tetap terapkan rate limit 5x/5 menit dan 10x/hari berbasis IP
+      const limitInfo = checkAndUpdateIpRateLimitForUnknownEmail(ip, { isFailedAttempt: true });
+
+      if (limitInfo.limited) {
+        if (limitInfo.reason === "5min_limit" || limitInfo.reason === "window_lock") {
+          const secondsLeft = limitInfo.secondsLeft || 300;
+          logEvent("login_attempt", {
+            ...ctx,
+            success: false,
+            reason: "user_not_found_rate_limited",
+            statusCode: 429,
+          });
+          return buildLoginLimitResponse(res, {
+            status: 429,
+            code: "LOGIN_RATE_LIMIT",
+            message: `Terlalu banyak percobaan login. Coba lagi dalam ${Math.ceil(
+              secondsLeft / 60,
+            )} menit.`,
+            extra: { retry_after_seconds: secondsLeft },
+          });
+        }
+
+        if (limitInfo.reason === "daily_limit") {
+          logEvent("login_attempt", {
+            ...ctx,
+            success: false,
+            reason: "user_not_found_daily_limit",
+            statusCode: 429,
+          });
+          return buildLoginLimitResponse(res, {
+            status: 429,
+            code: "LOGIN_DAILY_LIMIT",
+            message:
+              "Terlalu banyak percobaan login gagal hari ini dari perangkat ini. Coba lagi besok atau periksa kembali email dan password kamu.",
+          });
+        }
+      }
+
       logEvent("login_attempt", {
         ...ctx,
         success: false,
         reason: "user_not_found",
         statusCode: 400,
       });
-      return res
-        .status(400)
-        .json({
-          success: false,
-          code: "INVALID_CREDENTIALS",
-          message: "Email atau password salah.",
-        });
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_CREDENTIALS",
+        message: "Email atau password salah.",
+      });
     }
 
     // Cek OTP required karena limit harian
