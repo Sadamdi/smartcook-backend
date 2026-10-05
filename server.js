@@ -10,6 +10,33 @@ const { errorHandler } = require('./src/middleware/errorHandler');
 const { validateApiKey } = require('./src/middleware/apiKey');
 const { logEvent, buildRequestContext } = require('./src/utils/logger');
 
+// Optional Google OAuth client allowlist (comma-separated). Defaults to
+// empty so the server still boots without it, but the auth path will log
+// a warning so it's obvious when Google sign-in is unverifiable.
+const GOOGLE_CLIENT_IDS = (process.env.GOOGLE_CLIENT_IDS || '')
+	.split(',')
+	.map((s) => s.trim())
+	.filter(Boolean);
+const GOOGLE_WEB_CLIENT_ID = (process.env.GOOGLE_WEB_CLIENT_ID || '').trim();
+if (GOOGLE_CLIENT_IDS.length === 0) {
+	console.warn(
+		'[Google Sign-In] GOOGLE_CLIENT_IDS belum diset. Verifikasi idToken akan menerima audience apa pun (fallback).',
+	);
+} else {
+	console.log(
+		`[Google Sign-In] GOOGLE_CLIENT_IDS aktif untuk ${GOOGLE_CLIENT_IDS.length} client.`,
+	);
+}
+if (!GOOGLE_WEB_CLIENT_ID) {
+	console.warn(
+		'[Google Sign-In] GOOGLE_WEB_CLIENT_ID belum diset. Web client OAuth tidak akan diverifikasi.',
+	);
+} else {
+	console.log(
+		`[Google Sign-In] GOOGLE_WEB_CLIENT_ID aktif: ${GOOGLE_WEB_CLIENT_ID.slice(0, 12)}...`,
+	);
+}
+
 const authRoutes = require('./src/routes/auth');
 const userRoutes = require('./src/routes/user');
 const recipeRoutes = require('./src/routes/recipe');

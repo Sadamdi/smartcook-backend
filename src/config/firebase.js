@@ -2,17 +2,30 @@ const admin = require('firebase-admin');
 const path = require('path');
 const fs = require('fs');
 
+// Allow either the conventional `serviceAccountKey.json` or the
+// project-specific filename that ships with this repo. The VPS deploy
+// exposes the latter at the backend root.
+const SERVICE_ACCOUNT_FILES = [
+	'serviceAccountKey.json',
+	'smartcook-487714-6f8b1e2a6187.json',
+];
+
+const findServiceAccount = () => {
+	for (const name of SERVICE_ACCOUNT_FILES) {
+		const p = path.join(__dirname, '..', '..', name);
+		if (fs.existsSync(p)) return require(p);
+	}
+	return null;
+};
+
+const isPlaceholderKey = (key) =>
+	typeof key === 'string' && key.includes('YOUR_PRIVATE_KEY_HERE');
+
 const initFirebase = () => {
 	if (admin.apps.length > 0) return admin;
 
 	let credential;
 
-	const serviceAccountPath = path.join(
-		__dirname,
-		'..',
-		'..',
-		'serviceAccountKey.json',
-	);
 	const googleServicesPath = path.join(
 		__dirname,
 		'..',
@@ -20,28 +33,17 @@ const initFirebase = () => {
 		'google-services.json',
 	);
 
-	if (fs.existsSync(serviceAccountPath)) {
-		const serviceAccount = require(serviceAccountPath);
-		credential = admin.credential.cert(serviceAccount);
+	const fileServiceAccount = findServiceAccount();
+	if (fileServiceAccount) {
+		credential = admin.credential.cert(fileServiceAccount);
 	} else if (
 		process.env.FIREBASE_PROJECT_ID &&
 		process.env.FIREBASE_CLIENT_EMAIL &&
-		process.env.FIREBASE_PRIVATE_KEY
+		process.env.FIREBASE_PRIVATE_KEY &&
+		!isPlaceholderKey(process.env.FIREBASE_PRIVATE_KEY)
 	) {
 		const rawKey = process.env.FIREBASE_PRIVATE_KEY;
 		const normalizedKey = rawKey.replace(/\\n/g, '\n');
-
-		if (normalizedKey.includes('YOUR_PRIVATE_KEY_HERE')) {
-			console.error(
-				'[Firebase] FIREBASE_PRIVATE_KEY masih placeholder (YOUR_PRIVATE_KEY_HERE).',
-			);
-			console.error(
-				'Silakan isi dengan private key asli dari Service Account JSON di Firebase Console.',
-			);
-			throw new Error(
-				'Konfigurasi Firebase belum lengkap: FIREBASE_PRIVATE_KEY masih placeholder.',
-			);
-		}
 
 		credential = admin.credential.cert({
 			projectId: process.env.FIREBASE_PROJECT_ID,
@@ -71,7 +73,8 @@ const initFirebase = () => {
 
 			if (
 				process.env.FIREBASE_CLIENT_EMAIL &&
-				process.env.FIREBASE_PRIVATE_KEY
+				process.env.FIREBASE_PRIVATE_KEY &&
+				!isPlaceholderKey(process.env.FIREBASE_PRIVATE_KEY)
 			) {
 				credential = admin.credential.cert({
 					projectId: projectId,

@@ -4,6 +4,8 @@ const { admin, initFirebase } = require("../config/firebase");
 const { generateOTP, isOTPValid, getOTPExpiry } = require("../utils/otp");
 const { sendOTPEmail } = require("../utils/email");
 const { logEvent, buildRequestContext } = require("../utils/logger");
+const { verifyGoogleIdToken } = require("../lib/googleAuth");
+const { signGoogleTicket } = require("../lib/googleTicket");
 
 const generateToken = (userId) => {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
@@ -519,7 +521,7 @@ const login = async (req, res, next) => {
 
 const googleAuth = async (req, res, next) => {
   try {
-    const { email, name, uid, photo_url } = req.body;
+    const { email, name, uid, photo_url, idToken } = req.body;
     const ip = req.headers["x-forwarded-for"] || req.ip;
     const userAgent = req.headers["user-agent"] || "";
     const base = {
@@ -530,7 +532,7 @@ const googleAuth = async (req, res, next) => {
       uid,
     };
 
-    if (!uid || !email) {
+    if (!idToken || typeof idToken !== "string" || !email || !uid) {
       logEvent("google_login", {
         ...base,
         success: false,
@@ -539,29 +541,94 @@ const googleAuth = async (req, res, next) => {
       });
       return res.status(400).json({
         success: false,
-        message: "UID dan email dari akun Google wajib dikirim.",
+        message: "UID dan email wajib dikirim beserta idToken dari Google.",
       });
     }
 
-    let user = await User.findOne({ email: email.toLowerCase() }).select(
+    // Verifikasi ID token Firebase / Google. Hasil decode adalah sumber
+    // kebenaran untuk uid/email/name/picture — abaikan klaim dari body.
+    let claims;
+    try {
+      claims = await verifyGoogleIdToken(idToken);
+    } catch (err) {
+      const status = err && err.statusCode ? err.statusCode : 401;
+      const code = err && err.code ? err.code : "INVALID_GOOGLE_TOKEN";
+      logEvent("google_login", {
+        ...base,
+        success: false,
+        reason: status === 500 ? "google_not_configured" : "invalid_id_token",
+        statusCode: status,
+        errorCode: code,
+        errorMessage: err && err.message ? err.message : String(err),
+      });
+      return res.status(status).json({
+        success: false,
+        code,
+        message: err && err.message
+          ? err.message
+          : "Google ID token tidak valid.",
+      });
+    }
+
+    const verifiedUid = claims.uid;
+    const verifiedEmail = (claims.email || "").toLowerCase() || null;
+
+    if (!verifiedUid || !verifiedEmail) {
+      logEvent("google_login", {
+        ...base,
+        success: false,
+        reason: "token_missing_uid_or_email",
+        statusCode: 401,
+      });
+      return res.status(401).json({
+        success: false,
+        code: "INVALID_GOOGLE_TOKEN",
+        message: "Google ID token tidak memiliki uid/email.",
+      });
+    }
+
+    if (
+      email &&
+      typeof email === "string" &&
+      email.toLowerCase() !== verifiedEmail
+    ) {
+      logEvent("google_login", {
+        ...base,
+        success: false,
+        reason: "email_mismatch",
+        statusCode: 401,
+        verifiedEmail,
+      });
+      return res.status(401).json({
+        success: false,
+        code: "EMAIL_MISMATCH",
+        message:
+          "Email pada body tidak cocok dengan email pada Google ID token.",
+      });
+    }
+
+    let user = await User.findOne({ email: verifiedEmail }).select(
       "+password",
     );
 
+    const trustedName = claims.name || name || "";
+    const trustedPhoto = claims.picture || photo_url || "";
+
     if (!user) {
       user = await User.create({
-        email: email.toLowerCase(),
-        name: name || "",
+        email: verifiedEmail,
+        name: trustedName,
         auth_provider: "google",
-        firebase_uid: uid,
+        firebase_uid: verifiedUid,
       });
     } else {
       let changed = false;
       if (!user.firebase_uid) {
-        user.firebase_uid = uid;
+        user.firebase_uid = verifiedUid;
         changed = true;
       }
-      if (name && !user.name) {
-        user.name = name;
+      if (trustedName && !user.name) {
+        user.name = trustedName;
         changed = true;
       }
       if (changed) {
@@ -572,10 +639,27 @@ const googleAuth = async (req, res, next) => {
     const needsPassword = !user.password;
     const token = generateToken(user._id);
 
+    // Opsional: terbitkan ticket Google singkat agar UI bisa menuntaskan
+    // alur registrasi/password tanpa memverifikasi ulang ID token.
+    let googleTicket = null;
+    try {
+      googleTicket = signGoogleTicket("register", {
+        sub: verifiedUid,
+        email: verifiedEmail,
+        name: claims.name,
+        picture: claims.picture,
+      });
+    } catch (err) {
+      // Tidak fatal: kalau JWT_SECRET tidak diset, tiket tidak diterbitkan.
+      googleTicket = null;
+    }
+
     const safeUser = user.toJSON();
 
     logEvent("google_login", {
       ...base,
+      email: verifiedEmail,
+      uid: verifiedUid,
       userId: user._id.toString(),
       success: true,
       reason: "ok",
@@ -585,7 +669,12 @@ const googleAuth = async (req, res, next) => {
     res.json({
       success: true,
       message: "Login Google berhasil.",
-      data: { user: safeUser, token, needs_password: needsPassword },
+      data: {
+        user: safeUser,
+        token,
+        needs_password: needsPassword,
+        google_ticket: googleTicket,
+      },
     });
   } catch (error) {
     next(error);
