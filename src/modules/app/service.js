@@ -206,7 +206,11 @@ getClientBuild(req, manifestBuild) {
       // `downloadPath` is path-only (no host) so the client can append
       // `?abi=...` etc. on its own. Cert gate is enforced via the token.
       downloadPath: "/api/app/download",
-      latestApkSha256: m.apks[0]?.sha256 || null,
+      // Per-ABI SHA-256, so an arm64 device verifies the arm64 APK and never
+      // the arm32 one. Same field name the Kelilink client reads.
+      apkSha256: Object.fromEntries(
+        m.apks.map((a) => [a.abi, a.sha256]),
+      ),
       // Full release history so the in-app changelog can show every version,
       // newest first. Same shape the auto-update dialog already parses.
       history: m.history,
