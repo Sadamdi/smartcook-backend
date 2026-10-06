@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 const { parseReleaseManifest, APK_ABIS } = require("./schema");
+const { logEvent } = require("../../utils/logger");
 
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -106,11 +107,37 @@ class AppService {
     return normalized.length > 0 && normalized === expected;
   }
 
-  getClientBuild(req) {
+  /**
+ * Reads the installed build number from the request.
+ *
+ * `latest.json.build` is the `+N` suffix from pubspec.yaml (7 for 1.0.6), and
+ * that is what the client must send. Gradle also derives an Android
+ * `versionCode` from the dotted version name (1.0.6 became 2006), which is an
+ * unrelated numbering: if a client sends that, `clientBuild < minBuild` is
+ * never true and `mandatory` is permanently false, so nobody ever gets the
+ * update dialog. Treat a value far outside the manifest's own range as
+ * unusable rather than silently believing it.
+ */
+getClientBuild(req, manifestBuild) {
     const raw = req.headers["x-smartcook-build"] || req.query.build;
     if (raw === undefined) return undefined;
     const n = Number(raw);
-    return Number.isInteger(n) && n > 0 ? n : undefined;
+    if (!Number.isInteger(n) || n <= 0) return undefined;
+    // Builds grow by small steps; a client claiming to be thousands ahead of
+    // the published build is reporting a different numbering scheme.
+    if (Number.isInteger(manifestBuild) && n > manifestBuild * 100) {
+      logEvent("app_version_check", {
+        ip: req.headers["x-forwarded-for"] || req.ip,
+        userAgent: req.headers["user-agent"],
+        clientBuild: n,
+        latestBuild: manifestBuild,
+        success: false,
+        statusCode: 200,
+        reason: "implausible_build_number",
+      });
+      return undefined;
+    }
+    return n;
   }
 
   getClientCert(req) {
@@ -121,7 +148,7 @@ class AppService {
     const m = await this.readManifest();
     const cert = this.getClientCert(req);
     const client = {
-      build: this.getClientBuild(req),
+      build: this.getClientBuild(req, m.build),
       cert,
       isOfficial: this.isOfficialCert(cert),
     };
@@ -132,6 +159,14 @@ class AppService {
       const e = new Error("Forbidden");
       e.statusCode = 403;
       e.code = "FORBIDDEN_CLIENT";
+      logEvent("app_version_check", {
+        ip: req.headers["x-forwarded-for"] || req.ip,
+        userAgent: req.headers["user-agent"],
+        clientBuild: client.build,
+        success: false,
+        statusCode: 403,
+        reason: "cert_mismatch",
+      });
       throw e;
     }
 
@@ -140,6 +175,21 @@ class AppService {
     const mandatory =
       client.build !== undefined &&
       (client.build < m.minBuild || m.blockedBuilds.includes(client.build));
+
+    // Log every check. Without this there is no way to tell "the client never
+    // asked" apart from "the client asked and decided not to show a dialog".
+    logEvent("app_version_check", {
+      ip: req.headers["x-forwarded-for"] || req.ip,
+      userAgent: req.headers["user-agent"],
+      clientBuild: client.build,
+      latestBuild: m.build,
+      minBuild: m.minBuild,
+      mandatory,
+      isOfficial: client.isOfficial,
+      hasToken: Boolean(token),
+      success: true,
+      statusCode: 200,
+    });
 
     return {
       latestVersion: m.version,
