@@ -157,6 +157,9 @@ class AppService {
       // `?abi=...` etc. on its own. Cert gate is enforced via the token.
       downloadPath: "/api/app/download",
       latestApkSha256: m.apks[0]?.sha256 || null,
+      // Full release history so the in-app changelog can show every version,
+      // newest first. Same shape the auto-update dialog already parses.
+      history: m.history,
     };
   }
 

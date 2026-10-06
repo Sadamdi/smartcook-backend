@@ -21,7 +21,6 @@ const getTodayDateOnly = () => {
 const FIVE_MINUTES_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS_5_MIN = 5;
 const MAX_ATTEMPTS_DAILY = 10;
-const ONE_MINUTE_MS = 60 * 1000;
 
 // Rate limit tambahan berbasis IP untuk kasus email yang tidak ditemukan,
 // supaya tetap ikut aturan 5x/5 menit dan 10x/hari.
@@ -111,21 +110,17 @@ const getOtpExpirySeconds = (user) => {
   return Math.ceil(diff / 1000);
 };
 
-const checkOtpSendRateLimit = (user) => {
-  const now = Date.now();
-  if (!user.otp_last_sent_at) return { limited: false };
-  const last = user.otp_last_sent_at.getTime();
-  const diff = now - last;
-  if (diff < ONE_MINUTE_MS) {
-    const msLeft = ONE_MINUTE_MS - diff;
-    const secondsLeft = Math.ceil(msLeft / 1000);
-    return { limited: true, secondsLeft };
-  }
-  return { limited: false };
-};
+// `checkOtpSendRateLimit` and the cooldown stamp are shared with
+// userController (it previously called undefined references, so the profile
+// OTP endpoints threw ReferenceError on first use). Local copies would drift.
+const {
+  checkOtpSendRateLimit,
+  markOtpSent: markOtpSentShared,
+} = require("../utils/otpRateLimit");
 
+// The auth flow additionally stamps the 10-minute expiry on every send.
 const markOtpSent = (user) => {
-  user.otp_last_sent_at = new Date();
+  markOtpSentShared(user);
   user.otp_expires = getOTPExpiry();
 };
 
@@ -350,7 +345,10 @@ const login = async (req, res, next) => {
         user.otp_code = otp;
         markOtpSent(user);
         await user.save();
-        await sendOTPEmail(user.email, user.otp_code);
+        await sendOTPEmail(user.email, user.otp_code, {
+          purpose: "login-lock",
+          name: user.name,
+        });
       }
 
       logEvent("login_attempt", {
@@ -459,7 +457,10 @@ const login = async (req, res, next) => {
             user.otp_code = otp;
             markOtpSent(user);
             await user.save();
-            await sendOTPEmail(user.email, user.otp_code);
+            await sendOTPEmail(user.email, user.otp_code, {
+              purpose: "login-lock",
+              name: user.name,
+            });
           }
 
           logEvent("login_attempt", {
@@ -782,7 +783,7 @@ const forgotPassword = async (req, res, next) => {
     markOtpSent(user);
     await user.save();
 
-    await sendOTPEmail(email, otp);
+    await sendOTPEmail(email, otp, { purpose: "reset-password" });
 
     const expiresIn = getOtpExpirySeconds(user);
 
@@ -1037,7 +1038,10 @@ const loginOTPResend = async (req, res, next) => {
     markOtpSent(user);
     await user.save();
 
-    await sendOTPEmail(user.email, otp);
+    await sendOTPEmail(user.email, otp, {
+      purpose: "login-lock",
+      name: user.name,
+    });
 
     const expiresIn = getOtpExpirySeconds(user);
 

@@ -83,6 +83,38 @@ function parseReleaseManifest(raw) {
   const date =
     typeof data.date === "string" ? data.date : new Date().toISOString().slice(0, 10);
 
+  // Release history, newest first. Optional in the manifest but forwarded so
+  // the in-app changelog has something to show; the client already ignores
+  // unknown fields, so an old manifest without `history` still parses.
+  let history = [];
+  if (data.history !== undefined && !Array.isArray(data.history)) {
+    throw badManifest("history must be an array");
+  }
+  if (Array.isArray(data.history)) {
+    history = data.history.map((entry, i) => {
+      if (!entry || typeof entry !== "object") {
+        throw badManifest(`history[${i}] not an object`);
+      }
+      return {
+        version: ensureString(entry.version, `history[${i}].version`, { max: 32 }),
+        build: ensureInt(entry.build, `history[${i}].build`, { min: 1 }),
+        date: typeof entry.date === "string" ? entry.date : null,
+        type:
+          typeof entry.type === "string" && RELEASE_TYPES.includes(entry.type)
+            ? entry.type
+            : null,
+        notes: typeof entry.notes === "string" ? entry.notes : "",
+      };
+    });
+    // Deduplicate by build (a build can only appear once) and sort newest
+    // first, so a hand-edited manifest cannot show the same version twice.
+    const byBuild = new Map();
+    for (const entry of history) {
+      if (!byBuild.has(entry.build)) byBuild.set(entry.build, entry);
+    }
+    history = [...byBuild.values()].sort((a, b) => b.build - a.build);
+  }
+
   return {
     version,
     build,
@@ -92,6 +124,7 @@ function parseReleaseManifest(raw) {
     notes,
     date,
     apks,
+    history,
   };
 }
 

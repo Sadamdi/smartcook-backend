@@ -9,6 +9,8 @@ const {
   changePasswordFromProfile,
   sendEmailChangeOTP,
   confirmEmailChange,
+  sendDeleteAccountOTP,
+  deleteAccount,
 } = require("../controllers/userController");
 
 router.get("/profile", protect, getProfile);
@@ -18,5 +20,7 @@ router.post("/password/send-otp", protect, sendPasswordChangeOTP);
 router.post("/password/change", protect, changePasswordFromProfile);
 router.post("/email/send-otp", protect, sendEmailChangeOTP);
 router.post("/email/confirm", protect, confirmEmailChange);
+router.post("/delete/send-otp", protect, sendDeleteAccountOTP);
+router.delete("/", protect, deleteAccount);
 
 module.exports = router;

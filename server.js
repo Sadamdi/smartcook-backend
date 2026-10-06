@@ -54,6 +54,7 @@ const chatRoutes = require('./src/routes/chat');
 const categoryRoutes = require('./src/routes/category');
 const ingredientRoutes = require('./src/routes/ingredient');
 const appRoutes = require('./src/modules/app/routes');
+const helpRoutes = require('./src/modules/help/routes');
 
 const app = express();
 
@@ -226,6 +227,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/ingredients', ingredientRoutes);
 app.use('/api/app', appRoutes);
+app.use('/api/help', helpRoutes);
 
 app.get('/api/health', (req, res) => {
 	res.json({
