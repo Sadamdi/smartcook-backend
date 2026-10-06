@@ -30,6 +30,11 @@ const googleLimiter = rateLimit({
 	},
 });
 
+// App-level (not user-level) auth: handshake / refresh / revoke. Mounted here
+// so they live next to the other auth endpoints, but they are unauthenticated
+// on purpose — they are how a device bootstraps and renews its own token.
+const appTokenRoutes = require('../modules/app-tokens/routes');
+
 router.post('/register', register);
 router.post('/login', login);
 router.post('/google', googleLimiter, googleAuth);
@@ -39,5 +44,9 @@ router.post('/verify-otp', verifyOTP);
 router.post('/reset-password', resetPassword);
 router.post('/login-otp-verify', loginOTPVerify);
 router.post('/login-otp-resend', loginOTPResend);
+
+// Handshake / refresh / revoke. These carry their own rate limits and their
+// own cert gate, so they must be registered before any router-level gate.
+router.use('/', appTokenRoutes);
 
 module.exports = router;
