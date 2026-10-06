@@ -55,6 +55,7 @@ const categoryRoutes = require('./src/routes/category');
 const ingredientRoutes = require('./src/routes/ingredient');
 const appRoutes = require('./src/modules/app/routes');
 const helpRoutes = require('./src/modules/help/routes');
+const devLogRoutes = require('./src/modules/devlog/routes');
 
 const app = express();
 
@@ -96,6 +97,11 @@ const OPEN_PATHS = new Set([
   '/api/health',
   '/api/auth/handshake',
   '/api/auth/refresh',
+  // Developer debug log. It must be reachable before a session exists: a
+  // launch crash happens before the handshake completes, and that is exactly
+  // the report we need. The route attaches identity itself when a token is
+  // present, and stores the event anonymously when it is not.
+  '/api/devlog/ingest',
 ]);
 
 const isBootstrapRequest = (req) => {
@@ -228,6 +234,9 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/ingredients', ingredientRoutes);
 app.use('/api/app', appRoutes);
 app.use('/api/help', helpRoutes);
+// Developer debug log. Deliberately not part of the release notes: it is a
+// diagnostic aid for tracking down bugs, not a user-facing feature.
+app.use('/api/devlog', devLogRoutes);
 
 app.get('/api/health', (req, res) => {
 	res.json({
