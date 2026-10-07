@@ -38,6 +38,15 @@ function badManifest(err) {
   return e;
 }
 
+function outPassthrough(entry) {
+  if (!entry || typeof entry !== "object") return {};
+  const out = {};
+  for (const k of ["headlineId", "headlineEn", "notesId", "notesEn", "sections"]) {
+    if (entry[k] !== undefined) out[k] = entry[k];
+  }
+  return out;
+}
+
 function parseReleaseManifest(raw) {
   let data;
   try {
@@ -145,7 +154,7 @@ function parseReleaseManifest(raw) {
     notes,
     date,
     apks,
-    history,
+    history: history.map((h) => ({ ...h, ...outPassthrough(h) })),
   };
 }
 
