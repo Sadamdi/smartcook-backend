@@ -58,6 +58,7 @@ function parseReleaseManifest(raw) {
     throw badManifest("releaseType must be one of " + RELEASE_TYPES.join("/"));
   }
   const releaseType = data.releaseType;
+  const out = { releaseType };
 
   if (!Array.isArray(data.apks) || data.apks.length === 0) {
     throw badManifest("apks must be a non-empty array");
@@ -95,7 +96,7 @@ function parseReleaseManifest(raw) {
       if (!entry || typeof entry !== "object") {
         throw badManifest(`history[${i}] not an object`);
       }
-      return {
+      const obj = {
         version: ensureString(entry.version, `history[${i}].version`, { max: 32 }),
         build: ensureInt(entry.build, `history[${i}].build`, { min: 1 }),
         date: typeof entry.date === "string" ? entry.date : null,
@@ -105,6 +106,17 @@ function parseReleaseManifest(raw) {
             : null,
         notes: typeof entry.notes === "string" ? entry.notes : "",
       };
+      // Pass through optional rich fields. Each is length-capped at the
+      // service layer so the schema just needs to keep them as-is.
+      const passthrough = [
+        "headline", "headlineId", "headlineEn",
+        "notesId", "notesEn",
+        "sections",
+      ];
+      for (const k of passthrough) {
+        if (entry[k] !== undefined) obj[k] = entry[k];
+      }
+      return obj;
     });
     // Deduplicate by build (a build can only appear once) and sort newest
     // first, so a hand-edited manifest cannot show the same version twice.
@@ -115,12 +127,21 @@ function parseReleaseManifest(raw) {
     history = [...byBuild.values()].sort((a, b) => b.build - a.build);
   }
 
+  const topPassthrough = [
+    "headlineId", "headlineEn",
+    "notesId", "notesEn",
+    "sections",
+  ];
+  for (const k of topPassthrough) {
+    if (data[k] !== undefined) out[k] = data[k];
+  }
+
   return {
+    ...out,
     version,
     build,
     minBuild,
     blockedBuilds,
-    releaseType,
     notes,
     date,
     apks,

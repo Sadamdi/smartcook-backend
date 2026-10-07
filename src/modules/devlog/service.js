@@ -61,6 +61,37 @@ const WIRE = {
   statusCode: "c",
   meta: "q",
   ts: "t",
+  // Extended device fields (Android). All are optional - older builds ship
+  // the bare minimum.
+  deviceBrand: "xb",
+  deviceBoard: "xbb",
+  deviceHardware: "xh",
+  deviceSoc: "xso",
+  deviceHost: "xho",
+  deviceFingerprint: "xfp",
+  supportedAbis: "xab",
+  installer: "xin",
+  installerPackage: "xip",
+  firstInstallTime: "xfi",
+  lastUpdateTime: "xlu",
+  targetSdk: "xtg",
+  minSdk: "xmn",
+  timezone: "xtz",
+  country: "xco",
+  screenWidthPx: "xsw",
+  screenHeightPx: "xsh",
+  screenDensity: "xsd",
+  totalMemoryBytes: "xrm",
+  availableMemoryBytes: "xam",
+  totalInternalStorageBytes: "xrt",
+  freeInternalStorageBytes: "xrf",
+  lowStorage: "xls",
+  batteryLevel: "xbl",
+  isCharging: "xch",
+  networkType: "xnt",
+  carrierName: "xcn",
+  simCountryIso: "xsi",
+  hasFineLocation: "xfl",
 };
 
 /**
@@ -82,6 +113,19 @@ function truncate(value, max) {
 function num(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function toBool(value) {
+  if (value === true || value === false) return value;
+  if (value === "true" || value === 1) return true;
+  if (value === "false" || value === 0) return false;
+  return null;
+}
+
+function parseDate(value) {
+  if (value === undefined || value === null) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isFinite(d.getTime()) ? d : null;
 }
 
 /**
@@ -160,6 +204,40 @@ class DevLogService {
         deviceManufacturer: truncate(field(raw, "deviceManufacturer"), 80),
         abi: truncate(field(raw, "abi"), 20),
         locale: truncate(field(raw, "locale"), 20),
+
+        // Extended device fields. Each is sanitised individually so a
+        // garbage value from an old client cannot corrupt the row.
+        deviceBrand: truncate(field(raw, "deviceBrand"), 60),
+        deviceBoard: truncate(field(raw, "deviceBoard"), 60),
+        deviceHardware: truncate(field(raw, "deviceHardware"), 60),
+        deviceSoc: truncate(field(raw, "deviceSoc"), 60),
+        deviceHost: truncate(field(raw, "deviceHost"), 60),
+        deviceFingerprint: truncate(field(raw, "deviceFingerprint"), 120),
+        supportedAbis: Array.isArray(field(raw, "supportedAbis"))
+          ? field(raw, "supportedAbis").slice(0, 8).map((x) => truncate(x, 20)).filter(Boolean)
+          : undefined,
+        installer: truncate(field(raw, "installer"), 80),
+        installerPackage: truncate(field(raw, "installerPackage"), 80),
+        firstInstallTime: parseDate(field(raw, "firstInstallTime")),
+        lastUpdateTime: parseDate(field(raw, "lastUpdateTime")),
+        targetSdk: num(field(raw, "targetSdk")),
+        minSdk: num(field(raw, "minSdk")),
+        timezone: truncate(field(raw, "timezone"), 60),
+        country: truncate(field(raw, "country"), 8),
+        screenWidthPx: num(field(raw, "screenWidthPx")),
+        screenHeightPx: num(field(raw, "screenHeightPx")),
+        screenDensity: num(field(raw, "screenDensity")),
+        totalMemoryBytes: num(field(raw, "totalMemoryBytes")),
+        availableMemoryBytes: num(field(raw, "availableMemoryBytes")),
+        totalInternalStorageBytes: num(field(raw, "totalInternalStorageBytes")),
+        freeInternalStorageBytes: num(field(raw, "freeInternalStorageBytes")),
+        lowStorage: toBool(field(raw, "lowStorage")),
+        batteryLevel: num(field(raw, "batteryLevel")),
+        isCharging: toBool(field(raw, "isCharging")),
+        networkType: num(field(raw, "networkType")),
+        carrierName: truncate(field(raw, "carrierName"), 60),
+        simCountryIso: truncate(field(raw, "simCountryIso"), 8),
+        hasFineLocation: toBool(field(raw, "hasFineLocation")),
         ip,
         userAgent: truncate(userAgent, MAX_STRING),
         certSha256: cert,
