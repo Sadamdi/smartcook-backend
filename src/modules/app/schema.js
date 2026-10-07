@@ -41,7 +41,7 @@ function badManifest(err) {
 function outPassthrough(entry) {
   if (!entry || typeof entry !== "object") return {};
   const out = {};
-  for (const k of ["headlineId", "headlineEn", "notesId", "notesEn", "sections"]) {
+  for (const k of ["headlineId", "headlineEn", "notesId", "notesEn", "sections", "androidVersionCode"]) {
     if (entry[k] !== undefined) out[k] = entry[k];
   }
   return out;
@@ -108,6 +108,10 @@ function parseReleaseManifest(raw) {
       const obj = {
         version: ensureString(entry.version, `history[${i}].version`, { max: 32 }),
         build: ensureInt(entry.build, `history[${i}].build`, { min: 1 }),
+        androidVersionCode:
+          entry.androidVersionCode !== undefined && entry.androidVersionCode !== null
+            ? ensureInt(entry.androidVersionCode, `history[${i}].androidVersionCode`, { min: 1 })
+            : null,
         date: typeof entry.date === "string" ? entry.date : null,
         type:
           typeof entry.type === "string" && RELEASE_TYPES.includes(entry.type)
@@ -121,6 +125,13 @@ function parseReleaseManifest(raw) {
         "headline", "headlineId", "headlineEn",
         "notesId", "notesEn",
         "sections",
+        // `androidVersionCode` is what PackageInfo reports on Android, distinct
+        // from the monotonic `build` counter. Old releases (1.0.0 .. 1.0.4)
+        // were made before the versionCode==pubspec-build rule, so their
+        // Android versionCode and manifest build diverge by a small offset;
+        // carrying the Android number explicitly lets the client decide
+        // which entries are actually newer than what is installed.
+        "androidVersionCode",
       ];
       for (const k of passthrough) {
         if (entry[k] !== undefined) obj[k] = entry[k];

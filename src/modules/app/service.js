@@ -247,6 +247,7 @@ getClientBuild(req, manifestBuild) {
         ? m.history.map((h) => ({
             version: h.version,
             build: h.build,
+            androidVersionCode: h.androidVersionCode ?? h.build,
             date: h.date,
             type: h.type,
             headline: pickNotes(h.headlineId, h.headlineEn, h.headline, client.locale),
