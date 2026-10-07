@@ -48,6 +48,28 @@ function getManifestPath() {
   return path.join(dir, "latest.json");
 }
 
+/**
+ * Picks the right localised release note for the client's language. Falls
+ * back to whatever else is published rather than showing nothing.
+ */
+function pickNotes(id, en, fallback, locale) {
+  const lang = (locale || "").toLowerCase().slice(0, 2);
+  const wantId = lang === "id";
+  const wantEn = lang === "en";
+  // Prefer the explicit locale-specific copy. When the manifest only has
+  // one language, the other field is empty - fall back so a user on the
+  // "wrong" language still sees notes instead of an empty dialog.
+  if (wantEn && typeof en === "string" && en.trim()) return en;
+  if (wantId && typeof id === "string" && id.trim()) return id;
+  // Unknown locale: prefer Indonesian (the app's primary language) over
+  // English. Forcing a non-Indonesian reader onto a string they did not
+  // ask for is worse than picking one consistent default.
+  if (typeof id === "string" && id.trim()) return id;
+  if (typeof en === "string" && en.trim()) return en;
+  if (typeof fallback === "string" && fallback.trim()) return fallback;
+  return id || en || null;
+}
+
 function signPayload(payload) {
   return crypto.createHmac("sha256", getKey()).update(payload).digest("base64url");
 }
@@ -147,10 +169,20 @@ getClientBuild(req, manifestBuild) {
   async getVersion(req) {
     const m = await this.readManifest();
     const cert = this.getClientCert(req);
+    // Accept either the new explicit header or the standard Accept-Language
+    // the platform already sets; browsers and Flutter both populate it.
+    // The full header value looks like "en-US,en;q=0.9" - the first 2 chars
+    // are the primary language.
+    const rawHeader = req.headers["x-smartcook-locale"]
+      || req.headers["accept-language"]
+      || "";
+    const firstTag = rawHeader.split(",")[0].trim();
+    const locale = firstTag ? firstTag.toLowerCase().slice(0, 2) || null : null;
     const client = {
       build: this.getClientBuild(req, m.build),
       cert,
       isOfficial: this.isOfficialCert(cert),
+      locale,
     };
 
     if (client.cert && !client.isOfficial) {
@@ -194,26 +226,53 @@ getClientBuild(req, manifestBuild) {
     return {
       latestVersion: m.version,
       latestBuild: m.build,
-      minBuild: m.minBuild,
+      minBuild: m.build,
       blockedBuilds: m.blockedBuilds,
       releaseType: m.releaseType,
-      notes: m.notes,
       date: m.date,
+      // Per-locale release notes. Old manifests still use the bare `notes`
+      // field; both shapes are accepted by the client.
+      notes: pickNotes(m.notesId, m.notesEn, m.notes, client.locale),
+      headlineId: m.headlineId || null,
+      headlineEn: m.headlineEn || null,
+      notesId: m.notesId || null,
+      notesEn: m.notesEn || null,
+      sections: m.sections || [],
       abis: APK_ABIS,
+      apkSha256: Object.fromEntries(
+        m.apks.map((a) => [a.abi, a.sha256]),
+      ),
+      // Per-release section list for the in-app changelog screen.
+      history: Array.isArray(m.history)
+        ? m.history.map((h) => ({
+            version: h.version,
+            build: h.build,
+            date: h.date,
+            type: h.type,
+            headline: pickNotes(h.headlineId, h.headlineEn, h.headline, client.locale),
+            headlineId: h.headlineId || null,
+            headlineEn: h.headlineEn || null,
+            notes: pickNotes(h.notesId, h.notesEn, h.notes, client.locale),
+            notesId: h.notesId || null,
+            notesEn: h.notesEn || null,
+            // Always carry the original sections array so the client can
+            // pick the language it wants even when the picker did not
+            // resolve to a known locale.
+            sections: h.sections || [],
+          }))
+        : [],
       token,
       // `mandatory` tells the client this is a forced update.
       mandatory,
       // `downloadPath` is path-only (no host) so the client can append
       // `?abi=...` etc. on its own. Cert gate is enforced via the token.
       downloadPath: "/api/app/download",
+      abis: APK_ABIS,
       // Per-ABI SHA-256, so an arm64 device verifies the arm64 APK and never
-      // the arm32 one. Same field name the Kelilink client reads.
+      // the arm32 one.
       apkSha256: Object.fromEntries(
         m.apks.map((a) => [a.abi, a.sha256]),
       ),
-      // Full release history so the in-app changelog can show every version,
-      // newest first. Same shape the auto-update dialog already parses.
-      history: m.history,
     };
   }
 
