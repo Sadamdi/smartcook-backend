@@ -163,4 +163,18 @@ function seal(body, publicKeyB64u, kidOverride) {
   return { v: VERSION, kid, k, n: b64u.enc(nonce), c: b64u.enc(ct) };
 }
 
-module.exports = { open, seal, loadKeys, generateKeyPair, EnvelopeError, VERSION, CLOCK_TOLERANCE_MS, _resetNonces: () => seenNonces.clear() };
+module.exports = {
+  open,
+  seal,
+  loadKeys,
+  generateKeyPair,
+  EnvelopeError,
+  VERSION,
+  CLOCK_TOLERANCE_MS,
+  // Shared with the API secure channel (src/modules/secure).
+  b64u,
+  importPrivate,
+  keyId,
+  rawPublic,
+  _resetNonces: () => seenNonces.clear(),
+};
