@@ -1,0 +1,6 @@
+[Unit]
+Description=SmartCook backend auto-deploy (pull, install, restart, health check)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /root/smartcook-backend/scripts/deploy.sh

@@ -1,0 +1,10 @@
+[Unit]
+Description=Poll GitHub for new SmartCook backend commits every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
