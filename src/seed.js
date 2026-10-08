@@ -742,8 +742,29 @@ const recipes = [
 	},
 ];
 
+// This script runs deleteMany({}) on ingredients and recipes. The laptop .env is
+// a copy of the server's, so it points at PRODUCTION: refuse unless the target
+// is local, or the operator names the exact host they mean to wipe.
+const assertSafeTarget = () => {
+	let host = '';
+	try {
+		host = new URL(process.env.MONGODB_URI).hostname;
+	} catch (_) {}
+	const local = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(host);
+	if (local || (host && process.env.SEED_CONFIRM_WIPE === host)) return;
+	console.error(
+		[
+			`Refusing to seed: ${host || 'MONGODB_URI is missing'} is not a local database.`,
+			'seed DELETES all recipes and ingredients. If you really mean that host,',
+			`back it up first, then run with SEED_CONFIRM_WIPE=${host || '<host>'}.`,
+		].join('\n'),
+	);
+	process.exit(1);
+};
+
 const seed = async () => {
 	try {
+		assertSafeTarget();
 		await mongoose.connect(process.env.MONGODB_URI);
 		console.log('Connected to MongoDB');
 
