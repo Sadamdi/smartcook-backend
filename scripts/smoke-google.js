@@ -13,9 +13,11 @@
 const https = require('https');
 
 const HOST = 'api.himatif-encoder.com';
-const API_KEY =
-	process.env.SMOKE_API_KEY ||
-	'sk_smartcook_api_2026_x9y8z7w6v5u4t3s2r1q0p9o8n7m6l5k4j3i2h1g0f9e8d7c6b5a4z3y2x1w0v9u8t7s6r5q';
+const API_KEY = process.env.SMOKE_API_KEY;
+if (!API_KEY) {
+	console.error('Set SMOKE_API_KEY (a session access token) before running.');
+	process.exit(2);
+}
 
 const cases = [
 	{

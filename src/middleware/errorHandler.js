@@ -19,6 +19,12 @@ const errorHandler = (err, req, res, next) => {
     message = "ID tidak valid.";
   }
 
+  if (statusCode >= 500) {
+    console.error(`[error] ${req.method} ${req.originalUrl} -> ${statusCode}:`, err.stack || err.message);
+    // Do not hand internals (driver errors, paths) to clients in production.
+    if (process.env.NODE_ENV === "production") message = "Terjadi kesalahan pada server.";
+  }
+
   res.status(statusCode).json({
     success: false,
     message,
