@@ -1,6 +1,7 @@
 "use strict";
 
 const DevLog = require("./model");
+const { maskIp } = require("../../utils/redact");
 
 /** How long a debug log is kept. MongoDB deletes rows past `expiresAt`. */
 const RETENTION_DAYS = Number(process.env.DEVLOG_RETENTION_DAYS || 30);
@@ -22,6 +23,7 @@ const ALLOWED_EVENTS = new Set([
   "screen_view",
   "action",
   "api_error",
+  "api_call",
   "network_error",
   "session_state",
   "update_check",
@@ -193,8 +195,10 @@ class DevLogService {
         installId: truncate(field(raw, "installId"), 64),
         event,
         userId: user && user._id ? String(user._id) : null,
-        userName: user && user.name ? truncate(user.name, MAX_STRING) : null,
-        userEmail: user && user.email ? truncate(user.email, MAX_STRING) : null,
+        // Only the opaque id is stored. Name and email are looked up from the
+        // users collection when needed instead of being copied into a log.
+        userName: null,
+        userEmail: null,
         appVersion: truncate(field(raw, "appVersion"), 40),
         appBuild: num(field(raw, "appBuild")),
         platform: truncate(field(raw, "platform"), 40),
@@ -238,7 +242,7 @@ class DevLogService {
         carrierName: truncate(field(raw, "carrierName"), 60),
         simCountryIso: truncate(field(raw, "simCountryIso"), 8),
         hasFineLocation: toBool(field(raw, "hasFineLocation")),
-        ip,
+        ip: maskIp(ip),
         userAgent: truncate(userAgent, MAX_STRING),
         certSha256: cert,
         sessionBuild: auth && auth.build ? num(auth.build) : null,
