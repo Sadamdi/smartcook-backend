@@ -1,4 +1,5 @@
 const User = require("../models/User");
+const DevLog = require("../modules/devlog/model");
 const FridgeItem = require("../models/FridgeItem");
 const Favorite = require("../models/Favorite");
 const ChatHistory = require("../models/ChatHistory");
@@ -662,6 +663,9 @@ const deleteAccount = async (req, res, next) => {
       Favorite.deleteMany({ user_id: uid }),
       ChatHistory.deleteMany({ user_id: uid }),
       Recipe.updateMany({ created_by: uid }, { $set: { created_by: null } }),
+      // Developer-log rows tagged with this account go too, not at the 30-day
+      // expiry: deleting an account must remove what we hold about the person.
+      DevLog.deleteMany({ userId: String(uid) }),
     ]);
 
     // Clear the OTP before the delete: if `remove` fails for any reason the
