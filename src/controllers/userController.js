@@ -3,7 +3,7 @@ const FridgeItem = require("../models/FridgeItem");
 const Favorite = require("../models/Favorite");
 const ChatHistory = require("../models/ChatHistory");
 const Recipe = require("../models/Recipe");
-const { generateOTP, isOTPValid, getOTPExpiry } = require("../utils/otp");
+const { generateOTP, isOTPValid, getOTPExpiry, otpMatches } = require("../utils/otp");
 const { sendOTPEmail } = require("../utils/email");
 const { logEvent, buildRequestContext } = require("../utils/logger");
 const {
@@ -243,7 +243,7 @@ const changePasswordFromProfile = async (req, res, next) => {
         });
       }
     } else if (otp) {
-      if (!isOTPValid(user) || user.otp_code !== otp) {
+      if (!isOTPValid(user) || !(await otpMatches(user, otp))) {
         const ctx = buildRequestContext(req);
         logEvent("profile_password_change", {
           ...ctx,
@@ -444,7 +444,7 @@ const confirmEmailChange = async (req, res, next) => {
       });
     }
 
-    if (!isOTPValid(user) || user.otp_code !== otp) {
+    if (!isOTPValid(user) || !(await otpMatches(user, otp))) {
       const ctx = buildRequestContext(req);
       logEvent("profile_email_change", {
         ...ctx,
@@ -641,7 +641,7 @@ const deleteAccount = async (req, res, next) => {
       });
     }
 
-    if (String(user.otp_code) !== String(otp).trim()) {
+    if (!(await otpMatches(user, otp))) {
       const ctx = buildRequestContext(req);
       logEvent("account_delete", {
         ...ctx,

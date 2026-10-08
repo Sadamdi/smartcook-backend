@@ -25,6 +25,8 @@ function checkOtpSendRateLimit(user) {
 
 function markOtpSent(user) {
   user.otp_last_sent_at = new Date();
+  // A new code starts with a clean slate of guesses.
+  user.otp_failed_attempts = 0;
 }
 
 function getOtpExpirySeconds(user) {
