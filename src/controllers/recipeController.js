@@ -1,4 +1,5 @@
 const Recipe = require('../models/Recipe');
+const { paginate } = require('../utils/pagination');
 const FridgeItem = require('../models/FridgeItem');
 const User = require('../models/User');
 const { getGeminiModel, retryWithAllKeys } = require('../config/gemini');
@@ -256,8 +257,8 @@ const toRecipeDocShape = (generated, { imageUrl, originQuery, originQueryNorm, u
 
 const getRecipes = async (req, res, next) => {
 	try {
-		const { page = 1, limit = 10, category, tags } = req.query;
-		const offset = (parseInt(page) - 1) * parseInt(limit);
+		const { category, tags } = req.query;
+		const { page, limit, offset } = paginate(req.query);
 		const query = {};
 		if (category) query.category = category;
 		if (tags) query.tags = { $in: tags.split(',') };
@@ -265,20 +266,22 @@ const getRecipes = async (req, res, next) => {
 		const [recipes, total] = await Promise.all([
 			Recipe.find(query)
 				.skip(offset)
-				.limit(parseInt(limit))
+				.limit(limit)
 				.sort({ created_at: -1 }),
 			Recipe.countDocuments(query),
 		]);
 
-		await ensureImagesForRecipes(recipes, { maxToFill: 2 });
+		ensureImagesForRecipes(recipes, { maxToFill: 2 }).catch((err) =>
+			console.warn(`[Recipe] ensureImagesForRecipes error di getRecipes: ${err.message}`),
+		);
 
 		const ctx = buildRequestContext(req);
 		logEvent('recipe_list', {
 			...ctx,
 			success: true,
 			statusCode: 200,
-			page: parseInt(page),
-			limit: parseInt(limit),
+			page: page,
+			limit: limit,
 			total,
 		});
 
@@ -286,10 +289,10 @@ const getRecipes = async (req, res, next) => {
 			success: true,
 			data: recipes,
 			pagination: {
-				page: parseInt(page),
-				limit: parseInt(limit),
+				page: page,
+				limit: limit,
 				total,
-				pages: Math.ceil(total / parseInt(limit)),
+				pages: Math.ceil(total / limit),
 			},
 		});
 	} catch (error) {
@@ -394,7 +397,8 @@ const getRecipeWithFridge = async (req, res, next) => {
 
 const searchRecipes = async (req, res, next) => {
 	try {
-		const { q, page = 1, limit = 10 } = req.query;
+		const { q } = req.query;
+		const { page, limit, offset } = paginate(req.query);
 		if (!q) {
 			const ctx = buildRequestContext(req);
 			logEvent('recipe_search', {
@@ -407,10 +411,9 @@ const searchRecipes = async (req, res, next) => {
 				.status(400)
 				.json({ success: false, message: 'Query pencarian wajib diisi.' });
 		}
-		const offset = (parseInt(page) - 1) * parseInt(limit);
 		const recipes = await Recipe.find({ $text: { $search: q } })
 			.skip(offset)
-			.limit(parseInt(limit))
+			.limit(limit)
 			.sort({ score: { $meta: 'textScore' } });
 		const total = await Recipe.countDocuments({ $text: { $search: q } });
 
@@ -420,8 +423,8 @@ const searchRecipes = async (req, res, next) => {
 			success: true,
 			statusCode: 200,
 			q,
-			page: parseInt(page),
-			limit: parseInt(limit),
+			page: page,
+			limit: limit,
 			total,
 		});
 
@@ -429,10 +432,10 @@ const searchRecipes = async (req, res, next) => {
 			success: true,
 			data: recipes,
 			pagination: {
-				page: parseInt(page),
-				limit: parseInt(limit),
+				page: page,
+				limit: limit,
 				total,
-				pages: Math.ceil(total / parseInt(limit)),
+				pages: Math.ceil(total / limit),
 			},
 		});
 	} catch (error) {
@@ -650,8 +653,7 @@ const queryRecipes = async (req, res, next) => {
 
 const getRecommendations = async (req, res, next) => {
 	try {
-		const { limit = 5 } = req.query;
-		const size = parseInt(limit);
+		const { limit: size } = paginate(req.query, { defaultLimit: 5 });
 		const userAllergiesRaw = Array.isArray(req.user?.allergies)
 			? req.user.allergies
 			: [];
@@ -706,8 +708,7 @@ const getRecommendations = async (req, res, next) => {
 
 const getPopularRecipes = async (req, res, next) => {
 	try {
-		const { limit = 10 } = req.query;
-		const size = parseInt(limit);
+		const { limit: size } = paginate(req.query);
 		const recipes = await Recipe.find({})
 			.sort({ popularity_count: -1, created_at: -1 })
 			.limit(size);
@@ -727,7 +728,8 @@ const getPopularRecipes = async (req, res, next) => {
 
 const globalSearchRecipes = async (req, res, next) => {
 	try {
-		const { q, page = 1, limit = 10 } = req.query;
+		const { q } = req.query;
+		const { page, limit, offset } = paginate(req.query);
 		const ctx = buildRequestContext(req);
 		if (!q || !String(q).trim()) {
 			logEvent('recipe_global_search', {
@@ -741,7 +743,6 @@ const globalSearchRecipes = async (req, res, next) => {
 				.json({ success: false, message: 'Query pencarian wajib diisi.' });
 		}
 		const query = String(q).trim();
-		const offset = (parseInt(page) - 1) * parseInt(limit);
 		const userAllergiesRaw = Array.isArray(req.user?.allergies)
 			? req.user.allergies
 			: [];
@@ -757,7 +758,7 @@ const globalSearchRecipes = async (req, res, next) => {
 		const [recipes, total] = await Promise.all([
 			Recipe.find(filter)
 				.skip(offset)
-				.limit(parseInt(limit))
+				.limit(limit)
 				.sort({ score: { $meta: 'textScore' } }),
 			Recipe.countDocuments(filter),
 		]);
@@ -766,18 +767,18 @@ const globalSearchRecipes = async (req, res, next) => {
 			success: true,
 			statusCode: 200,
 			q: query,
-			page: parseInt(page),
-			limit: parseInt(limit),
+			page: page,
+			limit: limit,
 			total,
 		});
 		res.json({
 			success: true,
 			data: recipes,
 			pagination: {
-				page: parseInt(page),
-				limit: parseInt(limit),
+				page: page,
+				limit: limit,
 				total,
-				pages: Math.ceil(total / parseInt(limit)),
+				pages: Math.ceil(total / limit),
 			},
 		});
 	} catch (error) {
@@ -788,7 +789,7 @@ const globalSearchRecipes = async (req, res, next) => {
 const getByMealType = async (req, res, next) => {
 	try {
 		const { type } = req.params;
-		const { page = 1, limit = 10 } = req.query;
+		const { page, limit, offset } = paginate(req.query);
 		const validTypes = ['breakfast', 'lunch', 'dinner'];
 		if (!validTypes.includes(type)) {
 			const ctx = buildRequestContext(req);
@@ -804,11 +805,10 @@ const getByMealType = async (req, res, next) => {
 				message: 'Tipe meal harus breakfast, lunch, atau dinner.',
 			});
 		}
-		const offset = (parseInt(page) - 1) * parseInt(limit);
 		const [recipes, total] = await Promise.all([
 			Recipe.find({ meal_type: type })
 				.skip(offset)
-				.limit(parseInt(limit))
+				.limit(limit)
 				.sort({ created_at: -1 }),
 			Recipe.countDocuments({ meal_type: type }),
 		]);
@@ -825,8 +825,8 @@ const getByMealType = async (req, res, next) => {
 			success: true,
 			statusCode: 200,
 			type,
-			page: parseInt(page),
-			limit: parseInt(limit),
+			page: page,
+			limit: limit,
 			total,
 		});
 
@@ -834,10 +834,10 @@ const getByMealType = async (req, res, next) => {
 			success: true,
 			data: recipes,
 			pagination: {
-				page: parseInt(page),
-				limit: parseInt(limit),
+				page: page,
+				limit: limit,
 				total,
-				pages: Math.ceil(total / parseInt(limit)),
+				pages: Math.ceil(total / limit),
 			},
 		});
 	} catch (error) {

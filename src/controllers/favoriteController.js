@@ -1,17 +1,17 @@
 const Favorite = require('../models/Favorite');
 const Recipe = require('../models/Recipe');
+const { paginate } = require('../utils/pagination');
 const { logEvent, buildRequestContext } = require('../utils/logger');
 
 const getFavorites = async (req, res, next) => {
 	try {
-		const { page = 1, limit = 10 } = req.query;
-		const offset = (parseInt(page) - 1) * parseInt(limit);
+		const { page, limit, offset } = paginate(req.query);
 		const [favorites, total] = await Promise.all([
 			Favorite.find({ user_id: req.user._id })
 				.populate('recipe_id')
 				.sort({ created_at: -1 })
 				.skip(offset)
-				.limit(parseInt(limit)),
+				.limit(limit),
 			Favorite.countDocuments({ user_id: req.user._id }),
 		]);
 		const ctx = buildRequestContext(req);
@@ -30,10 +30,10 @@ const getFavorites = async (req, res, next) => {
 				created_at: fav.created_at,
 			})),
 			pagination: {
-				page: parseInt(page),
-				limit: parseInt(limit),
+				page: page,
+				limit: limit,
 				total,
-				pages: Math.ceil(total / parseInt(limit)),
+				pages: Math.ceil(total / limit),
 			},
 		});
 	} catch (error) {
