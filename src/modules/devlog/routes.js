@@ -11,13 +11,13 @@ const { ipKey } = require("../../utils/rateLimitKey");
 const router = express.Router();
 
 /**
- * 120 batches per hour is generous: the client batches on launch and on
- * errors, and flushes at most a few times a session. The limiter is a safety
+ * 600 batches per hour: the client now also reports every API call, so a busy
+ * session flushes every ~8 seconds of activity. The limiter is a safety
  * net against a runaway client, not a quota a real user will meet.
  */
 const ingestLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 120,
+  max: 600,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: ipKey,
