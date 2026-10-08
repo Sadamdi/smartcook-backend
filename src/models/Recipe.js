@@ -103,7 +103,9 @@ const recipeSchema = new mongoose.Schema({
 });
 
 recipeSchema.index({ title: "text", description: "text", tags: "text" });
-recipeSchema.index({ meal_type: 1 });
+recipeSchema.index({ meal_type: 1, created_at: -1 });
+recipeSchema.index({ created_at: -1 });
+recipeSchema.index({ popularity_count: -1, created_at: -1 });
 recipeSchema.index({ category: 1 });
 recipeSchema.index({ tags: 1 });
 recipeSchema.index({ origin_query_norm: 1, source: 1 });

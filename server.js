@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const { connectMongoDB, isMongoConnected } = require('./src/config/db');
 const { initGemini } = require('./src/config/gemini');
@@ -67,8 +68,9 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(helmet());
+app.use(compression());
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ---------------------------------------------------------------------------
@@ -257,6 +259,7 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 3000;
+let httpServer = null;
 
 const startServer = async () => {
 	try {
@@ -278,7 +281,7 @@ const startServer = async () => {
 		initGemini();
 		console.log('Gemini AI initialized successfully');
 
-		app.listen(PORT, '0.0.0.0', () => {
+		httpServer = app.listen(PORT, '0.0.0.0', () => {
 			console.log(`SmartCook API running on port ${PORT}`);
 			console.log(`Health check: http://localhost:${PORT}/api/health`);
 			console.log(
@@ -306,5 +309,28 @@ const startServer = async () => {
 		process.exit(1);
 	}
 };
+
+// A rejected promise nobody awaited must not take the API down; a truly
+// uncaught exception leaves the process in an unknown state, so log it and
+// exit and let PM2 start a clean one.
+process.on('unhandledRejection', (reason) => {
+	console.error('[process] unhandledRejection:', reason && reason.stack ? reason.stack : reason);
+});
+process.on('uncaughtException', (err) => {
+	console.error('[process] uncaughtException:', err && err.stack ? err.stack : err);
+	process.exit(1);
+});
+
+// PM2 sends SIGTERM on restart/deploy. Stop accepting connections, let
+// in-flight requests finish, then exit; force it after 10 s.
+const shutdown = (signal) => {
+	console.log(`[process] ${signal} received, shutting down`);
+	const force = setTimeout(() => process.exit(0), 10000);
+	force.unref();
+	if (!httpServer) return process.exit(0);
+	httpServer.close(() => process.exit(0));
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 startServer();
