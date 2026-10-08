@@ -729,7 +729,7 @@ const sendMessageStream = async (req, res, next) => {
 			{ upsert: true },
 		);
 
-		res.write(`data: ${JSON.stringify({ done: true, fullReply })}\n\n`);
+		res.write(`data: ${JSON.stringify({ done: true, fullReply: finalReply })}\n\n`);
 		if (typeof res.flush === 'function') res.flush();
 		res.end();
 
