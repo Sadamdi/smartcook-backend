@@ -64,7 +64,7 @@ async function optionalUser(req, res, next) {
     if (typeof raw === "string" && raw.trim()) {
       const decoded = jwt.verify(raw.trim(), process.env.JWT_SECRET);
       const user = await User.findById(decoded.id)
-        .select("name email")
+        .select("_id")
         .lean();
       if (user) req.devUser = user;
     }
