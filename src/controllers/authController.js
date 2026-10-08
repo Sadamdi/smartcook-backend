@@ -1,7 +1,7 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { admin, initFirebase } = require("../config/firebase");
-const { generateOTP, isOTPValid, getOTPExpiry } = require("../utils/otp");
+const { generateOTP, isOTPValid, getOTPExpiry, otpMatches } = require("../utils/otp");
 const { sendOTPEmail } = require("../utils/email");
 const { logEvent, buildRequestContext } = require("../utils/logger");
 const { verifyGoogleIdToken } = require("../lib/googleAuth");
@@ -825,7 +825,7 @@ const verifyOTP = async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Kode OTP sudah expired. Silakan minta ulang." });
     }
 
-    if (user.otp_code !== otp) {
+    if (!(await otpMatches(user, otp))) {
       logEvent("otp_verify", {
         ...ctx,
         email: user.email,
@@ -871,7 +871,7 @@ const resetPassword = async (req, res, next) => {
 
     const ctx = buildRequestContext(req);
 
-    if (!isOTPValid(user) || user.otp_code !== otp) {
+    if (!isOTPValid(user) || !(await otpMatches(user, otp))) {
       logEvent("password_reset", {
         ...ctx,
         email: user.email,
@@ -926,7 +926,7 @@ const loginOTPVerify = async (req, res, next) => {
 
     const ctx = buildRequestContext(req);
 
-    if (!isOTPValid(user) || user.otp_code !== otp) {
+    if (!isOTPValid(user) || !(await otpMatches(user, otp))) {
       logEvent("login_otp_verify", {
         ...ctx,
         email: user.email,

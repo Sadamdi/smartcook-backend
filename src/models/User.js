@@ -91,6 +91,12 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+  // Wrong guesses against the current code. The OTP is only 4 digits, so
+  // without a cap it can be brute-forced inside its validity window.
+  otp_failed_attempts: {
+    type: Number,
+    default: 0,
+  },
   otp_last_sent_at: {
     type: Date,
     default: null,
@@ -124,6 +130,7 @@ userSchema.methods.toJSON = function () {
   delete obj.password;
   delete obj.otp_code;
   delete obj.otp_expires;
+  delete obj.otp_failed_attempts;
   delete obj.__v;
   return obj;
 };
