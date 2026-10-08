@@ -226,7 +226,9 @@ getClientBuild(req, manifestBuild) {
     return {
       latestVersion: m.version,
       latestBuild: m.build,
-      minBuild: m.build,
+      // The real floor, not `m.build`: sending the latest build here made every
+      // outdated client look "below minBuild" and turned all updates mandatory.
+      minBuild: m.minBuild,
       blockedBuilds: m.blockedBuilds,
       releaseType: m.releaseType,
       date: m.date,
@@ -268,12 +270,6 @@ getClientBuild(req, manifestBuild) {
       // `downloadPath` is path-only (no host) so the client can append
       // `?abi=...` etc. on its own. Cert gate is enforced via the token.
       downloadPath: "/api/app/download",
-      abis: APK_ABIS,
-      // Per-ABI SHA-256, so an arm64 device verifies the arm64 APK and never
-      // the arm32 one.
-      apkSha256: Object.fromEntries(
-        m.apks.map((a) => [a.abi, a.sha256]),
-      ),
     };
   }
 

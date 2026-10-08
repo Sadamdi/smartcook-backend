@@ -89,6 +89,8 @@ function parseReleaseManifest(raw) {
     return { abi, file, sha256, sizeBytes };
   });
 
+  if (minBuild > build) throw badManifest("minBuild cannot exceed build");
+
   const notes = ensureString(data.notes, "notes", { min: 1 });
   const date =
     typeof data.date === "string" ? data.date : new Date().toISOString().slice(0, 10);
