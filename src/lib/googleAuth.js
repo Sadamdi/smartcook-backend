@@ -8,11 +8,15 @@
  * Error with `statusCode` and `code` set so the HTTP layer can map it.
  */
 
-const { admin, initFirebase } = require("../config/firebase");
+const fs = require("fs");
+const path = require("path");
+const { admin } = require("../config/firebase");
+
+const VERIFIER_APP = "google-id-token-verifier";
 
 const notConfigured = (message) => {
   const e = new Error(
-    message || "Google Sign-In is not configured (admin not initialized).",
+    message || "Google Sign-In is not configured (Firebase project id missing).",
   );
   e.statusCode = 500;
   e.code = "GOOGLE_AUTH_NOT_CONFIGURED";
@@ -26,31 +30,32 @@ const unauthorized = (message) => {
   return e;
 };
 
-// Try hard to make sure firebase-admin is initialized. The legacy
-// `googleAuth` controller import never called initFirebase(), so the
-// server used to fall back to whatever default app existed. Mirror that
-// behavior here, but be defensive: explicitly trigger init when we have a
-// usable config and otherwise treat the request as "not configured".
-let adminEnsured = false;
-const ensureAdmin = () => {
-  if (adminEnsured) return;
-  if (admin.apps && admin.apps.length > 0) {
-    adminEnsured = true;
-    return;
-  }
+// The Firebase project the *app* signs in against (android/app/google-services.json).
+// The ID token's `aud` is that project id, so it is the only thing the verifier
+// needs. Verifying a token checks the signature against Google's public keys;
+// it never needs a service-account key. Tying verification to whatever
+// service-account file happens to sit on the server broke login when that file
+// belonged to a different project (smartcook-487714 vs the app's auth-48b22).
+const resolveProjectId = () => {
+  if (process.env.FIREBASE_PROJECT_ID) return process.env.FIREBASE_PROJECT_ID.trim();
   try {
-    initFirebase();
-    adminEnsured = true;
+    const gs = JSON.parse(
+      fs.readFileSync(path.join(__dirname, "..", "..", "google-services.json"), "utf8"),
+    );
+    return gs.project_info && gs.project_info.project_id;
   } catch (_) {
-    adminEnsured = false;
+    return null;
   }
 };
 
-const isAdminReady = () => {
-  ensureAdmin();
-  return Boolean(
-    admin && admin.apps && admin.apps.length > 0 && typeof admin.auth === "function",
-  );
+const getVerifierAuth = () => {
+  let app = admin.apps.find((a) => a && a.name === VERIFIER_APP);
+  if (!app) {
+    const projectId = resolveProjectId();
+    if (!projectId) throw notConfigured();
+    app = admin.initializeApp({ projectId }, VERIFIER_APP);
+  }
+  return app.auth();
 };
 
 const getGoogleClientIds = () => {
@@ -87,15 +92,13 @@ const verifyGoogleIdToken = async (idToken) => {
     throw unauthorized("ID token wajib diisi.");
   }
 
-  if (!isAdminReady()) {
-    throw notConfigured(
-      "Google Sign-In is not configured (firebase-admin belum diinisialisasi).",
-    );
-  }
+  const auth = getVerifierAuth();
 
   let decoded;
   try {
-    decoded = await admin.auth().verifyIdToken(idToken, true);
+    // No revocation check: it needs a service-account call to Google, and a
+    // revoked session is not a login-time concern here.
+    decoded = await auth.verifyIdToken(idToken);
   } catch (err) {
     // firebase-admin raises on expired/invalid/revoked tokens.
     throw unauthorized(
