@@ -1,6 +1,9 @@
+const { redactValue } = require("./redact");
+
 const logEvent = (event, payload = {}, level = "info") => {
   const ts = new Date().toISOString();
-  const base = { ts, level, event, ...payload };
+  // Raw process logs must not carry emails or client IPs.
+  const base = { ts, level, event, ...redactValue(payload) };
   try {
     console.log(JSON.stringify(base));
   } catch (e) {

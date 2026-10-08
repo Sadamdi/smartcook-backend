@@ -1,4 +1,5 @@
 require('dotenv').config();
+require('./src/utils/redact').installConsoleRedaction();
 
 const express = require('express');
 const cors = require('cors');
