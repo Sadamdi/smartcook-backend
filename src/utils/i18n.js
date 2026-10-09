@@ -107,6 +107,9 @@ const EN = {
   "Terlalu banyak percobaan sign-in Google. Coba lagi nanti.": "Too many Google sign-in attempts. Try again later.",
   "Terlalu banyak percobaan masuk. Coba lagi beberapa menit lagi.": "Too many sign-in attempts. Try again in a few minutes.",
   "Endpoint tidak ditemukan.": "Endpoint not found.",
+  "Nama bahan terlalu panjang.": "The ingredient name is too long.",
+  "Jumlah harus berupa angka dari 0 sampai 1.000.000.": "The quantity must be a number from 0 to 1,000,000.",
+  "Tanggal kadaluarsa tidak valid.": "The expiry date is not valid.",
   "Server error.": "Server error.",
 };
 
