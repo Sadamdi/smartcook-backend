@@ -35,3 +35,14 @@ systemctl daemon-reload && systemctl enable --now smartcook-deploy.timer
 
 The frontend (APK) is not part of this; releases go through
 `smartcook-frontend/scripts/release.ps1`.
+
+## Gotcha: pm2 needs the real daemon
+
+systemd runs the deploy without `HOME`, so `pm2` used to reach a fresh empty
+daemon (`/etc/.pm2`) instead of `/root/.pm2`: `pm2 restart` failed, the old
+process kept answering the health check, and the log said `deploy OK` although
+nothing was restarted (found 2026-10-09). The unit now sets `HOME`/`PM2_HOME`,
+`deploy.sh` exports them too, and a failed `pm2 restart` fails the deploy.
+After copying a changed unit file run `systemctl daemon-reload`. To confirm a
+deploy really restarted, compare the process uptime (`pm2 jlist`) with the
+`deploy OK` time in `/root/smartcook-deploy.log`.
