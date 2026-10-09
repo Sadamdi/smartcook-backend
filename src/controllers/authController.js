@@ -3,6 +3,7 @@ const User = require("../models/User");
 const { admin, initFirebase } = require("../config/firebase");
 const { generateOTP, isOTPValid, getOTPExpiry, otpMatches } = require("../utils/otp");
 const { sendOTPEmail } = require("../utils/email");
+const { suspended } = require("../modules/ops/restrictions");
 const { logEvent, buildRequestContext } = require("../utils/logger");
 const { verifyGoogleIdToken } = require("../lib/googleAuth");
 const { signGoogleTicket } = require("../lib/googleTicket");
@@ -198,6 +199,7 @@ const checkAndUpdateIpRateLimitForUnknownEmail = (ip, { isFailedAttempt }) => {
 const register = async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
+    if (email && (await suspended(res, email))) return;
 
     if (!email || !password) {
       return res.status(400).json({ success: false, message: "Email dan password wajib diisi." });
@@ -234,6 +236,7 @@ const register = async (req, res, next) => {
 const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+    if (email && (await suspended(res, email))) return;
     const ip = req.headers["x-forwarded-for"] || req.ip;
     const userAgent = req.headers["user-agent"] || "";
     const ctx = {
@@ -567,6 +570,7 @@ const googleAuth = async (req, res, next) => {
 
     const verifiedUid = claims.uid;
     const verifiedEmail = (claims.email || "").toLowerCase() || null;
+    if (verifiedEmail && (await suspended(res, verifiedEmail))) return;
 
     if (!verifiedUid || !verifiedEmail) {
       logEvent("google_login", {
@@ -900,6 +904,7 @@ const resetPassword = async (req, res, next) => {
 const loginOTPVerify = async (req, res, next) => {
   try {
     const { email, otp, new_password } = req.body;
+    if (email && (await suspended(res, email))) return;
 
     if (!email || !otp) {
       return res.status(400).json({

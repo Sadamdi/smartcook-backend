@@ -84,6 +84,9 @@ app.use(require('./src/modules/secure/channel').middleware());
 // Answer messages in the language the app is set to (X-Smartcook-Locale).
 app.use(require('./src/utils/i18n').middleware());
 
+// Restricted addresses stop here (health probe and update downloads excepted).
+app.use(require('./src/modules/ops/restrictions').ipGate());
+
 // ---------------------------------------------------------------------------
 // Access gate.
 //

@@ -5,6 +5,7 @@ const rateLimit = require("express-rate-limit");
 const { protect } = require("../../middleware/auth");
 const { resolve, gate } = require("./access");
 const members = require("./members");
+const restrict = require("./restrict");
 
 const router = express.Router();
 
@@ -33,5 +34,9 @@ router.get("/members", gate("members"), members.list);
 router.post("/members", gate("members"), members.add);
 router.patch("/members/:email", gate("members"), members.update);
 router.delete("/members/:email", gate("members"), members.remove);
+
+router.get("/restrictions", gate("restrict"), restrict.list);
+router.post("/restrictions", gate("restrict"), restrict.add);
+router.delete("/restrictions/:id", gate("restrict"), restrict.lift);
 
 module.exports = router;
