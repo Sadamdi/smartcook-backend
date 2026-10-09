@@ -7,12 +7,43 @@ const r = require("./restrictions");
 
 const bad = (res, message) => res.status(400).json({ success: false, message });
 
+const shapeRow = (x, now = Date.now()) => ({
+  id: String(x._id),
+  kind: x.kind,
+  value: x.value,
+  reason: x.reason,
+  by: x.by,
+  until: x.until,
+  remainingSeconds: r.remaining(x.until, now),
+  createdAt: x.createdAt,
+});
+
+/**
+ * Active restrictions only (a time-limited one that has run out is gone).
+ * Without `page` the answer is a plain list (older callers); with `page` it is
+ * { items, total, page, pages } for `pageSize` rows, optionally for one
+ * `kind` (ip | email) or a text search.
+ */
 async function list(req, res) {
-  const rows = await Restriction.find({ active: true }).sort({ createdAt: -1 }).limit(500).lean();
-  res.json({
-    success: true,
-    data: rows.map((x) => ({ id: String(x._id), kind: x.kind, value: x.value, reason: x.reason, by: x.by, until: x.until, createdAt: x.createdAt })),
-  });
+  const now = Date.now();
+  const filter = { active: true, $or: [{ until: null }, { until: { $gt: new Date(now) } }] };
+  if (req.query.kind === "ip" || req.query.kind === "email") filter.kind = req.query.kind;
+  const q = String(req.query.q || "").trim().slice(0, 80);
+  if (q) filter.value = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+  if (req.query.page === undefined) {
+    const rows = await Restriction.find(filter).sort({ createdAt: -1 }).limit(500).lean();
+    return res.json({ success: true, data: rows.map((x) => shapeRow(x, now)) });
+  }
+  const size = Math.max(1, Math.min(50, Number(req.query.pageSize) || 10));
+  const total = await Restriction.countDocuments(filter);
+  const pages = Math.max(1, Math.ceil(total / size));
+  const page = Math.min(pages, Math.max(1, Number(req.query.page) || 1));
+  const rows = await Restriction.find(filter)
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * size)
+    .limit(size)
+    .lean();
+  res.json({ success: true, data: { items: rows.map((x) => shapeRow(x, now)), total, page, pages, pageSize: size } });
 }
 
 /** One request may restrict an address, an e-mail or both. */

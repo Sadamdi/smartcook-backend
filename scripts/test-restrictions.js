@@ -15,10 +15,18 @@ const stub = (rel, exports) => {
 let rows = [];
 let trail = [];
 let seq = 0;
+const match = (r, q) =>
+  Object.entries(q || {}).every(([k, v]) => {
+    if (k === "$or") return v.some((alt) => match(r, alt));
+    if (v && v.$gt) return r[k] && new Date(r[k]) > v.$gt;
+    if (v instanceof RegExp) return v.test(String(r[k] || ""));
+    return r[k] === v;
+  });
 const Restriction = {
+  countDocuments: async (q) => rows.filter((r) => match(r, q)).length,
   find: (q) => {
-    const out = rows.filter((r) => Object.entries(q || {}).every(([k, v]) => r[k] === v));
-    const chain = { sort: () => chain, limit: () => chain, lean: async () => out.map((r) => ({ ...r })) };
+    let out = rows.filter((r) => match(r, q));
+    const chain = { sort: () => chain, skip: (n) => ((out = out.slice(n)), chain), limit: (n) => ((out = out.slice(0, n)), chain), lean: async () => out.map((r) => ({ ...r })) };
     return chain;
   },
   findOneAndUpdate: (q, upd, opts) => {
@@ -166,6 +174,41 @@ const t = async (name, fn) => {
     assert.strictEqual(out.body.code, "ACCOUNT_SUSPENDED");
     assert.strictEqual(out.body.reason, "fraud");
     assert.strictEqual(await R.suspended({ status() { throw new Error("must not answer"); } }, "ok@example.com"), false);
+  });
+
+  await t("the refusal says how long is left (null when it has no end), so the phone can count down", async () => {
+    const until = new Date(Date.now() + 90 * 60 * 1000);
+    R._setRules([{ kind: "ip", value: "203.0.113.5", reason: "abuse", until }, { kind: "email", value: "bad@example.com", reason: "", until: null }]);
+    const timed = await c("GET", "/api/recipes", { ip: "203.0.113.5" });
+    assert.ok(timed.body.remainingSeconds > 5390 && timed.body.remainingSeconds <= 5400, String(timed.body.remainingSeconds));
+    assert.strictEqual(new Date(timed.body.until).getTime(), until.getTime());
+    const res = { status: () => res, json: (b) => (res.body = b) };
+    await R.suspended(res, "bad@example.com");
+    assert.strictEqual(res.body.code, "ACCOUNT_SUSPENDED");
+    assert.strictEqual(res.body.remainingSeconds, null);
+    assert.strictEqual(res.body.until, null);
+  });
+
+  await t("owner list: only live rules, paged 10 at a time, filter by kind, shows time left", async () => {
+    R._setRules([]);
+    rows = [];
+    const now = Date.now();
+    for (let i = 0; i < 12; i++) rows.push({ _id: String(i + 1).padStart(24, "0"), kind: i % 4 === 0 ? "ip" : "email", value: i % 4 === 0 ? "203.0.113." + i : "u" + i + "@example.com", reason: "r", by: "boss@example.com", active: true, until: i === 1 ? new Date(now - 1000) : i === 2 ? new Date(now + 3600e3) : null, createdAt: new Date(now - i * 1000) });
+    const plain = await c("GET", "/api/ops/restrictions", { user: boss });
+    assert.ok(Array.isArray(plain.body.data));
+    assert.strictEqual(plain.body.data.length, 11, "the one that ran out is not listed");
+    const p1 = await c("GET", "/api/ops/restrictions?page=1&pageSize=10", { user: boss });
+    assert.strictEqual(p1.body.data.total, 11);
+    assert.strictEqual(p1.body.data.pages, 2);
+    assert.strictEqual(p1.body.data.items.length, 10);
+    const p2 = await c("GET", "/api/ops/restrictions?page=2&pageSize=10", { user: boss });
+    assert.strictEqual(p2.body.data.items.length, 1);
+    const ips = await c("GET", "/api/ops/restrictions?page=1&kind=ip", { user: boss });
+    assert.ok(ips.body.data.items.every((x) => x.kind === "ip"));
+    const timed = p1.body.data.items.find((x) => x.until);
+    assert.ok(timed.remainingSeconds > 3500 && timed.remainingSeconds <= 3600);
+    assert.ok(p1.body.data.items.some((x) => x.remainingSeconds === null));
+    rows = [];
   });
 
   await t("owner creates and lifts restrictions through the API; changes apply at once", async () => {

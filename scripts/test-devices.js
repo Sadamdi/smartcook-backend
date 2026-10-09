@@ -138,7 +138,7 @@ const ID = "install-abc-12345";
 
   await t("readings: only whitelisted numbers survive, clamped; junk ids are refused", () => {
     const r = live.beat({ installId: ID, cpu: 250, rssMb: -5, battery: "88", charging: "yes", tempC: 36.5, thermal: 2, secret: "x", net: 1 });
-    assert.deepStrictEqual(r, { ok: true, next: 60, watch: false });
+    assert.deepStrictEqual(r, { ok: true, next: 30, watch: false });
     const got = live.read(ID);
     assert.strictEqual(got.cpu, 100, "clamped");
     assert.strictEqual(got.rssMb, 0);
@@ -148,16 +148,16 @@ const ID = "install-abc-12345";
     for (const bad of [undefined, null, {}, { installId: "x" }, { installId: "a/b/../c" }, { installId: 5 }]) assert.strictEqual(live.beat(bad).ok, false);
   });
 
-  await t("adaptive pace: 60 s normally, 2 s while watched, back to 60 s when the watch lapses", () => {
+  await t("adaptive pace: 30 s normally, 2 s while watched, back to 30 s when the watch lapses", () => {
     const t0 = 5000000;
-    assert.strictEqual(live.beat({ installId: ID }, t0).next, 60);
+    assert.strictEqual(live.beat({ installId: ID }, t0).next, 30);
     live.want(ID, t0 + 100);
     const fast = live.beat({ installId: ID }, t0 + 2000);
     assert.deepStrictEqual([fast.next, fast.watch], [2, true]);
     live.want(ID, t0 + 20000); // renewed
     assert.strictEqual(live.beat({ installId: ID }, t0 + 40000).next, 2, "still inside the renewed window");
     const slow = live.beat({ installId: ID }, t0 + 60000);
-    assert.deepStrictEqual([slow.next, slow.watch], [60, false]);
+    assert.deepStrictEqual([slow.next, slow.watch], [30, false]);
   });
 
   await t("a phone cannot flood: a second beat inside 800 ms is ignored", () => {
@@ -242,7 +242,7 @@ const ID = "install-abc-12345";
 
   await t("watching a phone makes its next answer 'report every 2 s'", async () => {
     const first = await c("POST", "/api/telemetry/beat", { body: { installId: ID, cpu: 1 } });
-    assert.deepStrictEqual(first.body.data, { next: 60, watch: false });
+    assert.deepStrictEqual(first.body.data, { next: 30, watch: false });
     // open the live view (SSE) and read until the first frame
     await new Promise((resolve, reject) => {
       const rq = http.request({ port, method: "GET", path: "/api/ops/stream/device/" + ID, headers: { "x-test-user": JSON.stringify(boss) } }, (res) => {
