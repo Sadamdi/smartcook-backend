@@ -79,6 +79,7 @@ const userShape = (u, devices = 0) => ({
   createdAt: u.created_at,
   devices,
   suspended: !!restrictions.emailRestricted(u.email),
+  restriction: restrictions.describe(restrictions.emailRestricted(u.email)),
 });
 
 const SAFE = "email name auth_provider firebase_uid onboarding_completed created_at";
