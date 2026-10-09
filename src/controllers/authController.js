@@ -4,6 +4,7 @@ const { admin, initFirebase } = require("../config/firebase");
 const { generateOTP, isOTPValid, getOTPExpiry, otpMatches } = require("../utils/otp");
 const { sendOTPEmail } = require("../utils/email");
 const { suspended } = require("../modules/ops/restrictions");
+const { recordLogin } = require("../modules/ops/seen");
 const { logEvent, buildRequestContext } = require("../utils/logger");
 const { verifyGoogleIdToken } = require("../lib/googleAuth");
 const { signGoogleTicket } = require("../lib/googleTicket");
@@ -507,6 +508,7 @@ const login = async (req, res, next) => {
       statusCode: 200,
     });
 
+    recordLogin(req, user, "password");
     res.json({
       success: true,
       message: "Login berhasil.",
@@ -665,6 +667,7 @@ const googleAuth = async (req, res, next) => {
       statusCode: 200,
     });
 
+    recordLogin(req, user, "google");
     res.json({
       success: true,
       message: "Login Google berhasil.",
@@ -972,6 +975,7 @@ const loginOTPVerify = async (req, res, next) => {
       withPasswordChange: Boolean(new_password),
     });
 
+    recordLogin(req, user, "code");
     res.json({
       success: true,
       message: new_password

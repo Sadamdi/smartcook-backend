@@ -254,6 +254,7 @@ app.use('/api/help', helpRoutes);
 // diagnostic aid for tracking down bugs, not a user-facing feature.
 app.use('/api/devlog', devLogRoutes);
 app.use('/api/ops', require('./src/modules/ops/routes'));
+app.use('/api/telemetry', require('./src/modules/ops/telemetry'));
 
 app.get('/api/health', (req, res) => {
 	res.json({

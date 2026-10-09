@@ -265,6 +265,8 @@ class DevLogService {
     } catch (error) {
       console.error("[devlog] insert failed:", error.message);
     }
+    // Keeps the per-install registry current (own throttle, never throws).
+    require("../ops/seen").touch(docs, req.ip);
 
     return {
       accepted: docs.length,
