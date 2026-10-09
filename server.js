@@ -248,6 +248,8 @@ app.use('/api/favorites', favoriteRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/ingredients', ingredientRoutes);
+// Public announcement banner (plain text, no personal data); answered before the update routes.
+app.get('/api/app/notice', require('./src/modules/ops/notice').publicNotice);
 app.use('/api/app', appRoutes);
 app.use('/api/help', helpRoutes);
 // Developer debug log. Deliberately not part of the release notes: it is a

@@ -9,6 +9,8 @@ const restrict = require("./restrict");
 const { createSampler } = require("./metrics");
 const seen = require("./seen");
 const live = require("./live");
+const reports = require("./reports");
+const notice = require("./notice");
 const { record } = require("./access");
 
 const router = express.Router();
@@ -128,6 +130,23 @@ router.get("/stream/device/:installId", gate("live"), (req, res) => {
   record(req, "device.watch", id, {});
   tick();
 });
+
+router.get("/overview", gate("monitor"), async (req, res) => res.json({ success: true, data: await reports.overview() }));
+
+router.get("/logs", gate("logs"), async (req, res) => res.json({ success: true, data: await reports.logs(req.query) }));
+
+router.get("/trail", gate("trail"), async (req, res) => res.json({ success: true, data: await reports.trail(req.query) }));
+
+router.get("/users", gate("people"), async (req, res) => res.json({ success: true, data: await reports.users(req.query) }));
+
+router.get("/users/:id", gate("people"), async (req, res) => {
+  const d = await reports.userDetail(req.params.id);
+  if (!d) return res.status(404).json({ success: false, message: "Endpoint tidak ditemukan." });
+  res.json({ success: true, data: d });
+});
+
+router.get("/notice", gate("notice"), notice.get);
+router.put("/notice", gate("notice"), notice.put);
 
 router.sampler = sampler; // test seam
 module.exports = router;
