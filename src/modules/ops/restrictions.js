@@ -84,7 +84,7 @@ function ipRestricted(ip) {
   for (const r of rules) {
     if (r.kind !== "ip" || !live(r, now) || !r.matcher) continue;
     const type = net.isIPv4(addr) ? "ipv4" : net.isIPv6(addr) ? "ipv6" : null;
-    if (type && r.matcher.type === type && r.matcher.list.check(addr, type)) return { reason: r.reason };
+    if (type && r.matcher.type === type && r.matcher.list.check(addr, type)) return { reason: r.reason, until: r.until };
   }
   return null;
 }
@@ -94,9 +94,15 @@ function emailRestricted(email) {
   if (!e) return null;
   const now = Date.now();
   for (const r of rules) {
-    if (r.kind === "email" && r.value === e && live(r, now)) return { reason: r.reason };
+    if (r.kind === "email" && r.value === e && live(r, now)) return { reason: r.reason, until: r.until };
   }
   return null;
+}
+
+/** Seconds left of a time-limited restriction; null when it has no end. */
+function remaining(until, now = Date.now()) {
+  if (!until) return null;
+  return Math.max(1, Math.ceil((new Date(until).getTime() - now) / 1000));
 }
 
 function invalidate() {
@@ -128,6 +134,8 @@ function ipGate() {
       code: "IP_BLOCKED",
       message: "Anda telah diblokir dari layanan ini.",
       reason: hit.reason || "",
+      until: hit.until || null,
+      remainingSeconds: remaining(hit.until),
     });
   };
 }
@@ -142,6 +150,8 @@ async function suspended(res, email) {
     code: "ACCOUNT_SUSPENDED",
     message: "Akun ini ditangguhkan.",
     reason: hit.reason || "",
+    until: hit.until || null,
+    remainingSeconds: remaining(hit.until),
   });
   return true;
 }
@@ -154,6 +164,7 @@ module.exports = {
   ipRestricted,
   emailRestricted,
   invalidate,
+  remaining,
   fresh,
   ipGate,
   suspended,
