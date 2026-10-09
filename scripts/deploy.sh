@@ -14,6 +14,13 @@
 # script incrementally, and this script is itself overwritten by the reset.
 set -u
 
+# systemd starts this without HOME, and pm2 then talks to a brand-new empty
+# daemon under /etc/.pm2 instead of the real one: `pm2 restart` fails, the old
+# process keeps answering the health check and the deploy looks fine while
+# nothing was restarted. Pin pm2 to the real daemon.
+export HOME="${HOME:-/root}"
+export PM2_HOME="${PM2_HOME:-/root/.pm2}"
+
 APP_DIR="${APP_DIR:-/root/smartcook-backend}"
 BRANCH="${BRANCH:-main}"
 PM2_NAME="${PM2_NAME:-smartcook-backend}"
@@ -38,6 +45,13 @@ wait_healthy() {
     healthy && return 0
   done
   return 1
+}
+
+restart_app() {
+  if ! pm2 restart "$PM2_NAME" --update-env >> "$LOG" 2>&1; then
+    log "pm2 restart failed (is PM2_HOME=$PM2_HOME the daemon that runs $PM2_NAME?)"
+    return 1
+  fi
 }
 
 install_deps() {
@@ -78,12 +92,11 @@ main() {
   fi
   syntax_ok || { log "syntax check failed"; rollback "$cur" "$new" "$pkg_changed"; exit 1; }
 
-  pm2 restart "$PM2_NAME" >> "$LOG" 2>&1
-  if wait_healthy; then
+  if restart_app && wait_healthy; then
     log "deploy OK ${new:0:7}"
     exit 0
   fi
-  log "health check failed after ${HEALTH_TIMEOUT}s"
+  log "restart or health check failed (waited ${HEALTH_TIMEOUT}s)"
   rollback "$cur" "$new" "$pkg_changed"
   exit 1
 }
@@ -95,8 +108,7 @@ rollback() {
   cd "$APP_DIR" || return
   git reset --hard "$to" >> "$LOG" 2>&1
   [ "$reinstall" = 1 ] && install_deps
-  pm2 restart "$PM2_NAME" >> "$LOG" 2>&1
-  if wait_healthy; then log "rollback OK"; else log "ROLLBACK ALSO UNHEALTHY - needs a human"; fi
+  if restart_app && wait_healthy; then log "rollback OK"; else log "ROLLBACK ALSO UNHEALTHY - needs a human"; fi
 }
 
 main "$@"
