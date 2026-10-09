@@ -155,10 +155,7 @@ const sendPasswordChangeOTP = async (req, res, next) => {
     markOtpSent(user);
     await user.save();
 
-    await sendOTPEmail(user.email, otp, {
-      purpose: "change-password",
-      name: user.name,
-    });
+    await sendOTPEmail(user.email, otp, { purpose: "change-password", name: user.name, lang: req.lang });
 
     const ctx = buildRequestContext(req);
     logEvent("profile_password_otp_send", {
@@ -372,10 +369,7 @@ const sendEmailChangeOTP = async (req, res, next) => {
     markOtpSent(user);
     await user.save();
 
-    await sendOTPEmail(user.email, otp, {
-      purpose: "change-email",
-      name: user.name,
-    });
+    await sendOTPEmail(user.email, otp, { purpose: "change-email", name: user.name, lang: req.lang });
 
     const ctx = buildRequestContext(req);
     logEvent("profile_email_otp_send", {
@@ -566,10 +560,7 @@ const sendDeleteAccountOTP = async (req, res, next) => {
     user.otp_expires = getOTPExpiry();
     await user.save();
 
-    await sendOTPEmail(user.email, otp, {
-      purpose: "delete-account",
-      name: user.name,
-    });
+    await sendOTPEmail(user.email, otp, { purpose: "delete-account", name: user.name, lang: req.lang });
 
     const ctx = buildRequestContext(req);
     logEvent("account_delete_otp_send", {
