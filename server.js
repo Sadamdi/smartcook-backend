@@ -250,6 +250,7 @@ app.use('/api/help', helpRoutes);
 // Developer debug log. Deliberately not part of the release notes: it is a
 // diagnostic aid for tracking down bugs, not a user-facing feature.
 app.use('/api/devlog', devLogRoutes);
+app.use('/api/ops', require('./src/modules/ops/routes'));
 
 app.get('/api/health', (req, res) => {
 	res.json({

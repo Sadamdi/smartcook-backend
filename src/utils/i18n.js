@@ -110,6 +110,10 @@ const EN = {
   "Nama bahan terlalu panjang.": "The ingredient name is too long.",
   "Jumlah harus berupa angka dari 0 sampai 1.000.000.": "The quantity must be a number from 0 to 1,000,000.",
   "Tanggal kadaluarsa tidak valid.": "The expiry date is not valid.",
+  "Email tidak valid.": "The email is not valid.",
+  "Email ini tidak bisa diubah.": "This email cannot be changed.",
+  "Izin tidak boleh diberikan.": "That permission cannot be granted.",
+  "Tidak bisa mengubah akun sendiri.": "You cannot change your own account.",
   "Server error.": "Server error.",
 };
 
