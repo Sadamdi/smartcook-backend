@@ -86,6 +86,19 @@ const loginSchema = new mongoose.Schema(
 );
 loginSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
+const noticeSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true, unique: true },
+    idText: { type: String, default: "", maxlength: 280 },
+    enText: { type: String, default: "", maxlength: 280 },
+    active: { type: Boolean, default: false },
+    until: { type: Date, default: null },
+    updatedBy: { type: String, default: null },
+    updatedAt: { type: Date, default: Date.now },
+  },
+  { versionKey: false, collection: "ops_notice" }
+);
+
 const model = (name, schema) => mongoose.models[name] || mongoose.model(name, schema);
 
 module.exports = {
@@ -94,6 +107,7 @@ module.exports = {
   Trail: model("OpsTrail", trailSchema),
   Seen: model("OpsSeen", seenSchema),
   Login: model("OpsLogin", loginSchema),
+  Notice: model("OpsNotice", noticeSchema),
   SEEN_DAYS: 30,
   TRAIL_DAYS: 180,
   DAY,
