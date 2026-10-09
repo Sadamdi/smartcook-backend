@@ -31,6 +31,7 @@ const chain = (rows) => {
       out = [...out].sort((a, b) => (new Date(a[k]) - new Date(b[k])) * dir);
       return c;
     },
+    skip: (n) => ((out = out.slice(n)), c),
     limit: (n) => ((out = out.slice(0, n)), c),
     select: () => c,
     lean: async () => out.map((r) => ({ ...r })),
@@ -39,6 +40,7 @@ const chain = (rows) => {
 };
 const Seen = {
   find: (f) => chain(seenRows.filter((r) => matchFilter(r, f || {}))),
+  countDocuments: async (f) => seenRows.filter((r) => matchFilter(r, f || {})).length,
   findOne: (f) => ({ lean: async () => (seenRows.find((r) => matchFilter(r, f)) ? { ...seenRows.find((r) => matchFilter(r, f)) } : null) }),
   updateOne: async (f, upd) => {
     let row = seenRows.find((r) => r.installId === f.installId);
@@ -263,6 +265,82 @@ const ID = "install-abc-12345";
       rq.end();
     });
     assert.strictEqual((await c("POST", "/api/telemetry/beat", { body: { installId: "short" } })).status, 200, "garbage still answers 200");
+  });
+
+  await t("hardware facts: whitelisted and capped, junk dropped", () => {
+    const hw = live.cleanHw({ brand: "vivo", model: "I2501", abis: ["arm64-v8a"], cores: 8, coreMaxMhz: [2000, 3000], sensors: ["a", "b"], evil: "x", ramMb: 99999999999 });
+    assert.strictEqual(hw.brand, "vivo");
+    assert.deepStrictEqual(hw.abis, ["arm64-v8a"]);
+    assert.strictEqual(hw.evil, undefined);
+    assert.strictEqual(hw.ramMb, 1048576);
+    assert.strictEqual(live.cleanHw("nope"), null);
+  });
+
+  await t("beat makes the phone connected, keeps the last reading and hardware, and pages the list", async () => {
+    const geo = require("../src/modules/ops/geo");
+    geo._reset();
+    geo._setGap(0);
+    let asked = 0;
+    geo._setProvider(async (ip) => (asked++, { country: "ID", countryName: "Indonesia", city: "Jakarta", region: "Jakarta", isp: "Telkom", timezone: "Asia/Jakarta" }));
+    for (let i = 0; i < 12; i++) {
+      const id = "install-" + String(i).padStart(8, "0");
+      await seen.touchBeat({ installId: id, ip: "114.12.21." + i, userId: null, reading: { cpu: i, at: Date.now() }, hw: i === 0 ? live.cleanHw({ brand: "vivo", model: "I2501" }) : null, build: 24 });
+    }
+    await new Promise((r) => setTimeout(r, 200));
+    const p1 = await seen.list({ page: 1, pageSize: 10 });
+    assert.strictEqual(p1.total, 12);
+    assert.strictEqual(p1.pages, 2);
+    assert.strictEqual(p1.items.length, 10);
+    const p2 = await seen.list({ page: 2, pageSize: 10 });
+    assert.strictEqual(p2.items.length, 2);
+    assert.strictEqual(p2.page, 2);
+    assert.ok((await seen.list({ page: 9, pageSize: 10 })).page === 2, "page is clamped");
+    const one = seenRows.find((r) => r.installId === "install-00000000");
+    assert.strictEqual(one.deviceModel, "I2501");
+    assert.strictEqual(one.lastEvent, "beat");
+    assert.strictEqual(one.lastLive.cpu, 0);
+    assert.ok(one.geo && one.geo.city === "Jakarta" && one.geoIp === "114.12.21.0");
+    assert.strictEqual(asked, 12);
+    const d = await seen.detail("install-00000000");
+    assert.strictEqual(d.device.hw.brand, "vivo");
+    assert.strictEqual(d.device.place, "Jakarta, Jakarta, Indonesia");
+    assert.strictEqual(d.device.online, true);
+    // a phone that went quiet stays in the history, shown offline
+    one.lastSeen = new Date(Date.now() - 3600 * 1000);
+    assert.strictEqual((await seen.detail("install-00000000")).device.online, false);
+    assert.strictEqual((await seen.list({ online: true })).length, 11);
+    geo._setProvider(null);
+  });
+
+  await t("geo: private addresses are never sent out, answers are cached, failures are quiet", async () => {
+    const geo = require("../src/modules/ops/geo");
+    geo._reset();
+    let n = 0;
+    geo._setProvider(async () => (n++, { country: "ID" }));
+    assert.strictEqual(await geo.lookup("192.168.1.4"), null);
+    assert.strictEqual(await geo.lookup("127.0.0.1"), null);
+    assert.strictEqual(await geo.lookup("not-an-ip"), null);
+    assert.strictEqual(n, 0);
+    await geo.lookup("8.8.8.8");
+    await geo.lookup("8.8.8.8");
+    assert.strictEqual(n, 1);
+    geo._reset();
+    geo._setProvider(async () => {
+      throw new Error("down");
+    });
+    assert.strictEqual(await geo.lookup("1.1.1.1"), null);
+    geo._setProvider(null);
+    geo._reset();
+  });
+
+  await t("routes: paged list wraps items; old callers still get a plain array", async () => {
+    for (let i = 0; i < 3; i++) await seen.touchBeat({ installId: "install-xx00000" + i, ip: "203.0.113." + i, reading: { cpu: 1, at: Date.now() }, hw: null });
+    const old = await c("GET", "/api/ops/devices", { user: boss });
+    assert.ok(Array.isArray(old.body.data) && old.body.data.length === 3);
+    const paged = await c("GET", "/api/ops/devices?page=1&pageSize=2", { user: boss });
+    assert.strictEqual(paged.body.data.items.length, 2);
+    assert.strictEqual(paged.body.data.total, 3);
+    assert.strictEqual(paged.body.data.items[0].live.cpu, 1);
   });
 
   srv.close();

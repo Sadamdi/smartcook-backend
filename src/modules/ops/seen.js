@@ -3,9 +3,12 @@
 const mongoose = require("mongoose");
 const { Seen, Login, SEEN_DAYS, DAY } = require("./models");
 const restrictions = require("./restrictions");
+const geo = require("./geo");
 
 const TOUCH_EVERY_MS = 30 * 1000;
-const ONLINE_MS = 2 * 60 * 1000;
+const ONLINE_MS = 150 * 1000; // a phone reports every minute while the app is open
+const BEAT_WRITE_MS = 20 * 1000;
+const lastBeatWrite = new Map();
 const lastTouch = new Map(); // installId -> ms
 
 const clip = (v, n) => (v === undefined || v === null ? null : String(v).slice(0, n));
@@ -58,6 +61,47 @@ async function touch(docs, ip) {
   }
 }
 
+/** Remember where an address is, once per address change. Never blocks or throws. */
+function ensureGeo(installId, ip, known) {
+  if (!ip || known === ip) return;
+  geo
+    .lookup(ip)
+    .then((g) => (g ? Seen.updateOne({ installId }, { $set: { geo: g, geoIp: ip } }) : null))
+    .catch(() => {});
+}
+
+/**
+ * Called by every phone reading (about once a minute while the app is open).
+ * This is what makes a phone "connected", and it keeps the newest reading so
+ * the last known state is still there once the phone goes quiet.
+ */
+async function touchBeat({ installId, ip, userId, reading, hw, build }) {
+  try {
+    if (!installId) return;
+    const now = Date.now();
+    const known = await Seen.findOne({ installId }).lean();
+    const changed = !known || known.ip !== ip || (userId && known.userId !== String(userId)) || !!hw;
+    if (!changed && now - (lastBeatWrite.get(installId) || 0) < BEAT_WRITE_MS) return;
+    lastBeatWrite.set(installId, now);
+    if (lastBeatWrite.size > 5000) lastBeatWrite.clear();
+    const set = { lastSeen: new Date(now), lastEvent: "beat", ip: clip(ip, 64), lastLive: { ...reading, at: now }, expiresAt: new Date(now + SEEN_DAYS * DAY) };
+    if (userId) set.userId = String(userId);
+    if (hw) {
+      set.hw = hw;
+      if (hw.brand) set.manufacturer = hw.brand;
+      if (hw.model) set.deviceModel = hw.model;
+      if (hw.android) set.osVersion = hw.android;
+      if (hw.sdk) set.sdkInt = hw.sdk;
+      if (hw.abis && hw.abis[0]) set.abi = hw.abis[0];
+    }
+    if (build) set.appBuild = build;
+    await Seen.updateOne({ installId }, { $set: set, $setOnInsert: { firstSeen: new Date(now) } }, { upsert: true });
+    ensureGeo(installId, set.ip, known && known.geoIp);
+  } catch (_) {
+    // bookkeeping only
+  }
+}
+
 /** One row per successful sign-in. */
 async function recordLogin(req, user, via) {
   try {
@@ -86,8 +130,10 @@ const shape = (r, users, now = Date.now()) => ({
   appBuild: r.appBuild,
   abi: r.abi,
   locale: r.locale,
-  country: r.country,
-  timezone: r.timezone,
+  country: (r.geo && r.geo.country) || r.country,
+  place: r.geo ? [r.geo.city, r.geo.region, r.geo.countryName].filter(Boolean).join(", ") : null,
+  isp: r.geo ? r.geo.isp : null,
+  timezone: (r.geo && r.geo.timezone) || r.timezone,
   carrier: r.carrier,
   ip: r.ip,
   restricted: !!(r.ip && restrictions.ipRestricted(r.ip)),
@@ -96,6 +142,7 @@ const shape = (r, users, now = Date.now()) => ({
   online: !!r.lastSeen && now - new Date(r.lastSeen).getTime() < ONLINE_MS,
   batches: r.batches,
   lastEvent: r.lastEvent,
+  lastLive: r.lastLive || null,
 });
 
 async function usersFor(rows) {
@@ -109,7 +156,7 @@ async function usersFor(rows) {
 }
 
 /** Newest first; `online` keeps only installs seen in the last two minutes. */
-async function list({ q, online, limit = 50, before } = {}) {
+async function list({ q, online, limit = 50, before, page, pageSize } = {}) {
   const filter = {};
   const n = Math.max(1, Math.min(100, Number(limit) || 50));
   if (online) filter.lastSeen = { $gt: new Date(Date.now() - ONLINE_MS) };
@@ -125,6 +172,16 @@ async function list({ q, online, limit = 50, before } = {}) {
       const hit = await User.find({ $or: [{ email: rx }, { name: rx }] }).select("_id").limit(50).lean();
       filter.$or = [{ deviceModel: rx }, { manufacturer: rx }, { ip: rx }, { installId: rx }, { userId: { $in: hit.map((u) => String(u._id)) } }];
     }
+  }
+  if (page !== undefined && page !== null) {
+    // Paged mode: { items, total, page, pages } with `pageSize` rows each.
+    const size = Math.max(1, Math.min(50, Number(pageSize) || 10));
+    const total = await Seen.countDocuments(filter);
+    const pages = Math.max(1, Math.ceil(total / size));
+    const p = Math.min(pages, Math.max(1, Number(page) || 1));
+    const rows = await Seen.find(filter).sort({ lastSeen: -1 }).skip((p - 1) * size).limit(size).lean();
+    const users = await usersFor(rows);
+    return { items: rows.map((r) => shape(r, users)), total, page: p, pages, pageSize: size };
   }
   const rows = await Seen.find(filter).sort({ lastSeen: -1 }).limit(n).lean();
   const users = await usersFor(rows);
@@ -142,7 +199,7 @@ async function detail(installId) {
     .select("event action level error statusCode appBuild networkType batteryLevel createdAt")
     .lean();
   const logins = row.userId ? await Login.find({ userId: row.userId }).sort({ at: -1 }).limit(50).select("ip via at userAgent").lean() : [];
-  return { device: shape(row, users), events, logins };
+  return { device: { ...shape(row, users), hw: row.hw || null }, events, logins };
 }
 
-module.exports = { touch, recordLogin, list, detail, ONLINE_MS };
+module.exports = { touch, touchBeat, recordLogin, list, detail, ONLINE_MS };
