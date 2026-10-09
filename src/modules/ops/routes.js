@@ -84,15 +84,21 @@ router.get("/stream/server", gate("monitor"), (req, res) => {
 });
 
 router.get("/devices", gate("devices"), async (req, res) => {
-  const rows = await seen.list({ q: req.query.q, online: req.query.online === "1", limit: req.query.limit, before: req.query.before });
   const withLive = req.ops.perms.has("live");
-  res.json({ success: true, data: rows.map((r) => ({ ...r, live: withLive ? live.read(r.installId) : null })) });
+  // Newest reading: in memory while fresh, else the last one kept in the registry.
+  const addLive = (r) => ({ ...r, live: withLive ? live.read(r.installId) || (r.lastLive ? { ...r.lastLive, stale: true, ageMs: Date.now() - r.lastLive.at } : null) : null, lastLive: undefined });
+  const rows = await seen.list({ q: req.query.q, online: req.query.online === "1", limit: req.query.limit, before: req.query.before, page: req.query.page, pageSize: req.query.pageSize });
+  if (Array.isArray(rows)) return res.json({ success: true, data: rows.map(addLive) });
+  res.json({ success: true, data: { ...rows, items: rows.items.map(addLive) } });
 });
 
 router.get("/devices/:installId", gate("devices"), async (req, res) => {
   const d = await seen.detail(req.params.installId);
   if (!d) return res.status(404).json({ success: false, message: "Endpoint tidak ditemukan." });
-  res.json({ success: true, data: { ...d, live: req.ops.perms.has("live") ? live.read(d.device.installId) : null } });
+  const lastLive = d.device.lastLive;
+  const fresh = req.ops.perms.has("live") ? live.read(d.device.installId) : null;
+  const last = req.ops.perms.has("live") && lastLive ? { ...lastLive, stale: true, ageMs: Date.now() - lastLive.at } : null;
+  res.json({ success: true, data: { ...d, live: fresh || last } });
 });
 
 // Live readings of one phone. Watching makes the phone report every 2 s; it
