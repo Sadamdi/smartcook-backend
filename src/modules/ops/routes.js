@@ -6,6 +6,8 @@ const { protect } = require("../../middleware/auth");
 const { resolve, gate } = require("./access");
 const members = require("./members");
 const restrict = require("./restrict");
+const { createSampler } = require("./metrics");
+const { record } = require("./access");
 
 const router = express.Router();
 
@@ -39,4 +41,43 @@ router.get("/restrictions", gate("restrict"), restrict.list);
 router.post("/restrictions", gate("restrict"), restrict.add);
 router.delete("/restrictions/:id", gate("restrict"), restrict.lift);
 
+// One shared sampler: it only runs while somebody is watching.
+const sampler = createSampler();
+
+router.get("/server", gate("monitor"), (req, res) => {
+  res.json({ success: true, data: { sample: sampler.last(), history: sampler.history(), watching: sampler.watching() } });
+});
+
+// Live feed, one frame per second (sealed frame by frame by the encrypted channel).
+router.get("/stream/server", gate("monitor"), (req, res) => {
+  const send = (obj) => {
+    res.write(`data: ${JSON.stringify(obj)}
+
+`);
+    if (typeof res.flush === "function") res.flush();
+  };
+  let off = null;
+  let closed = false;
+  const cleanup = () => {
+    closed = true;
+    if (off) off();
+    off = null;
+  };
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders && res.flushHeaders();
+  // The response closes when the client goes away (the request 'close' only
+  // means the body was read).
+  res.on("close", cleanup);
+  send({ type: "history", items: sampler.history() });
+  off = sampler.subscribe((sample) => !closed && send({ type: "sample", sample }));
+  if (!off) {
+    send({ type: "busy" });
+    return res.end();
+  }
+  record(req, "monitor.open", null, {});
+});
+
+router.sampler = sampler; // test seam
 module.exports = router;
