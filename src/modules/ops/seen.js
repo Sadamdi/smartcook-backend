@@ -137,6 +137,8 @@ const shape = (r, users, now = Date.now()) => ({
   carrier: r.carrier,
   ip: r.ip,
   restricted: !!(r.ip && restrictions.ipRestricted(r.ip)),
+  restriction: r.ip ? restrictions.describe(restrictions.ipRestricted(r.ip)) : null,
+  userRestriction: r.userId && users.get(r.userId) ? restrictions.describe(restrictions.emailRestricted(users.get(r.userId).email)) : null,
   firstSeen: r.firstSeen,
   lastSeen: r.lastSeen,
   online: !!r.lastSeen && now - new Date(r.lastSeen).getTime() < ONLINE_MS,

@@ -84,7 +84,7 @@ function ipRestricted(ip) {
   for (const r of rules) {
     if (r.kind !== "ip" || !live(r, now) || !r.matcher) continue;
     const type = net.isIPv4(addr) ? "ipv4" : net.isIPv6(addr) ? "ipv6" : null;
-    if (type && r.matcher.type === type && r.matcher.list.check(addr, type)) return { reason: r.reason, until: r.until };
+    if (type && r.matcher.type === type && r.matcher.list.check(addr, type)) return { id: r.id, reason: r.reason, until: r.until };
   }
   return null;
 }
@@ -94,7 +94,7 @@ function emailRestricted(email) {
   if (!e) return null;
   const now = Date.now();
   for (const r of rules) {
-    if (r.kind === "email" && r.value === e && live(r, now)) return { reason: r.reason, until: r.until };
+    if (r.kind === "email" && r.value === e && live(r, now)) return { id: r.id, reason: r.reason, until: r.until };
   }
   return null;
 }
@@ -103,6 +103,11 @@ function emailRestricted(email) {
 function remaining(until, now = Date.now()) {
   if (!until) return null;
   return Math.max(1, Math.ceil((new Date(until).getTime() - now) / 1000));
+}
+
+/** What a member sees on a device or person: which rule applies and how long it lasts (null: none). */
+function describe(hit) {
+  return hit ? { id: hit.id || null, reason: hit.reason || "", remainingSeconds: remaining(hit.until) } : null;
 }
 
 function invalidate() {
@@ -165,6 +170,7 @@ module.exports = {
   emailRestricted,
   invalidate,
   remaining,
+  describe,
   fresh,
   ipGate,
   suspended,

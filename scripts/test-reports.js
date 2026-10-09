@@ -136,7 +136,7 @@ const t = async (name, fn) => {
     const r = await c("GET", "/api/ops/users?q=ani", { user: boss });
     assert.strictEqual(r.body.data.length, 1);
     const u = r.body.data[0];
-    assert.deepStrictEqual(Object.keys(u).sort(), ["createdAt", "devices", "email", "id", "name", "onboarded", "provider", "suspended", "verifiedWithGoogle"]);
+    assert.deepStrictEqual(Object.keys(u).sort(), ["createdAt", "devices", "email", "id", "name", "onboarded", "provider", "restriction", "suspended", "verifiedWithGoogle"]);
     assert.strictEqual(u.devices, 1);
     assert.strictEqual(u.verifiedWithGoogle, true);
     const all = await c("GET", "/api/ops/users", { user: boss });

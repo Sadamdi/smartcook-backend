@@ -189,6 +189,20 @@ const t = async (name, fn) => {
     assert.strictEqual(res.body.until, null);
   });
 
+  await t("describe(): the rule that applies, with its id and time left, for any address or e-mail it covers", () => {
+    R._setRules([
+      { id: "ip1", kind: "ip", value: "203.0.113.0/24", reason: "abuse", until: new Date(Date.now() + 600e3) },
+      { id: "em1", kind: "email", value: "bad@example.com", reason: "", until: null },
+    ]);
+    const ip = R.describe(R.ipRestricted("203.0.113.77"));
+    assert.strictEqual(ip.id, "ip1");
+    assert.ok(ip.remainingSeconds > 590 && ip.remainingSeconds <= 600);
+    const em = R.describe(R.emailRestricted("BAD@example.com"));
+    assert.deepStrictEqual(em, { id: "em1", reason: "", remainingSeconds: null });
+    assert.strictEqual(R.describe(R.ipRestricted("198.51.100.1")), null);
+    R._setRules([]);
+  });
+
   await t("owner list: only live rules, paged 10 at a time, filter by kind, shows time left", async () => {
     R._setRules([]);
     rows = [];
