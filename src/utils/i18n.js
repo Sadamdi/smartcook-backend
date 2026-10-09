@@ -114,6 +114,10 @@ const EN = {
   "Email ini tidak bisa diubah.": "This email cannot be changed.",
   "Izin tidak boleh diberikan.": "That permission cannot be granted.",
   "Tidak bisa mengubah akun sendiri.": "You cannot change your own account.",
+  "Anda telah diblokir dari layanan ini.": "You have been blocked from this service.",
+  "Akun ini ditangguhkan.": "This account has been suspended.",
+  "Target tidak valid.": "The target is not valid.",
+  "Target ini tidak boleh dibatasi.": "This target cannot be restricted.",
   "Server error.": "Server error.",
 };
 

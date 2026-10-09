@@ -1,6 +1,7 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const { legacyWindowOpen, looksLikeJwt } = require("./authToken");
+const { suspended } = require("../modules/ops/restrictions");
 
 /**
  * Reads the *user* JWT (the one issued by login/register/Google sign-in).
@@ -52,6 +53,9 @@ const protect = async (req, res, next) => {
         message: "Silakan masuk kembali.",
       });
     }
+
+    // A suspended account stops working on its next request.
+    if (await suspended(res, user.email)) return;
 
     req.user = user;
     next();
