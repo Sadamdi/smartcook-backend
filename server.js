@@ -81,6 +81,9 @@ app.use(express.urlencoded({ extended: true }));
 // src/modules/secure/channel.js).
 app.use(require('./src/modules/secure/channel').middleware());
 
+// Answer messages in the language the app is set to (X-Smartcook-Locale).
+app.use(require('./src/utils/i18n').middleware());
+
 // ---------------------------------------------------------------------------
 // Access gate.
 //

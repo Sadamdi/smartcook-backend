@@ -345,10 +345,7 @@ const login = async (req, res, next) => {
         user.otp_code = otp;
         markOtpSent(user);
         await user.save();
-        await sendOTPEmail(user.email, user.otp_code, {
-          purpose: "login-lock",
-          name: user.name,
-        });
+        await sendOTPEmail(user.email, user.otp_code, { purpose: "login-lock", name: user.name, lang: req.lang });
       }
 
       logEvent("login_attempt", {
@@ -457,10 +454,7 @@ const login = async (req, res, next) => {
             user.otp_code = otp;
             markOtpSent(user);
             await user.save();
-            await sendOTPEmail(user.email, user.otp_code, {
-              purpose: "login-lock",
-              name: user.name,
-            });
+            await sendOTPEmail(user.email, user.otp_code, { purpose: "login-lock", name: user.name, lang: req.lang });
           }
 
           logEvent("login_attempt", {
@@ -783,7 +777,7 @@ const forgotPassword = async (req, res, next) => {
     markOtpSent(user);
     await user.save();
 
-    await sendOTPEmail(email, otp, { purpose: "reset-password" });
+    await sendOTPEmail(email, otp, { purpose: "reset-password", lang: req.lang });
 
     const expiresIn = getOtpExpirySeconds(user);
 
@@ -1038,10 +1032,7 @@ const loginOTPResend = async (req, res, next) => {
     markOtpSent(user);
     await user.save();
 
-    await sendOTPEmail(user.email, otp, {
-      purpose: "login-lock",
-      name: user.name,
-    });
+    await sendOTPEmail(user.email, otp, { purpose: "login-lock", name: user.name, lang: req.lang });
 
     const expiresIn = getOtpExpirySeconds(user);
 
