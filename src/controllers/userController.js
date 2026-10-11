@@ -21,9 +21,13 @@ const getProfile = async (req, res, next) => {
       success: true,
       statusCode: 200,
     });
+    // A Google account that never chose a password must be sent to that step
+    // again wherever it signs in from (not only at the moment of Google login).
+    const withPw = await User.findById(req.user._id).select("+password").lean();
+    const base = typeof req.user.toJSON === "function" ? req.user.toJSON() : { ...req.user };
     res.json({
       success: true,
-      data: req.user,
+      data: { ...base, needs_password: !!withPw && withPw.auth_provider === "google" && !withPw.password },
     });
   } catch (error) {
     next(error);
@@ -78,7 +82,8 @@ const saveOnboarding = async (req, res, next) => {
 
     const updates = { onboarding_completed: true };
 
-    if (name !== undefined) updates.name = name;
+    // An empty name must never wipe the one given at sign-up.
+    if (typeof name === "string" && name.trim()) updates.name = name.trim().slice(0, 80);
     if (age_range !== undefined) updates.age_range = age_range;
     if (gender !== undefined) updates.gender = gender;
     if (allergies !== undefined) updates.allergies = allergies;

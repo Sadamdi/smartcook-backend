@@ -685,7 +685,7 @@ const googleAuth = async (req, res, next) => {
 
 const setGooglePassword = async (req, res, next) => {
   try {
-    const { new_password, confirm_password } = req.body;
+    const { new_password, confirm_password, name } = req.body;
 
     if (!new_password || !confirm_password) {
       return res.status(400).json({
@@ -732,6 +732,7 @@ const setGooglePassword = async (req, res, next) => {
     }
 
     user.password = new_password;
+    if (typeof name === "string" && name.trim()) user.name = name.trim().slice(0, 80);
     await user.save();
 
     const token = generateToken(user._id);
